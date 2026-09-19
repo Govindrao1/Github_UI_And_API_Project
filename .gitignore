@@ -1,0 +1,12 @@
+# Environment / secrets
+.env
+secrets/
+*.pem
+
+# Dependencies
+node_modules/
+
+# Playwright
+playwright-report/
+test-results/
+blob-report/
