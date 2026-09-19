@@ -2,21 +2,36 @@ import fs from 'fs';
 import jwt from 'jsonwebtoken';
 import { APIRequestContext } from '@playwright/test';
 
+interface InstallationTokenResponse {
+    token: string;
+    expires_at: string;
+}
+
 export class GitHubAppAuth {
     private readonly request: APIRequestContext;
     private readonly clientId: string;
     private readonly installationId: string;
     private readonly privateKeyPath: string;
 
+    private installationToken?: string;
+    private installationTokenExpiresAt = 0;
+
     constructor(request: APIRequestContext) {
         this.request = request;
 
-        this.clientId = process.env.GITHUB_APP_CLIENT_ID ?? '';
-        this.installationId = process.env.GITHUB_INSTALLATION_ID ?? '';
-        this.privateKeyPath = process.env.GITHUB_APP_PRIVATE_KEY_PATH ?? '';
+        this.clientId =
+            process.env.GITHUB_APP_CLIENT_ID ?? '';
+
+        this.installationId =
+            process.env.GITHUB_INSTALLATION_ID ?? '';
+
+        this.privateKeyPath =
+            process.env.GITHUB_APP_PRIVATE_KEY_PATH ?? '';
 
         if (!this.clientId) {
-            throw new Error('Missing GITHUB_APP_CLIENT_ID');
+            throw new Error(
+                'Missing GITHUB_APP_CLIENT_ID'
+            );
         }
 
         if (!this.installationId) {
@@ -38,6 +53,9 @@ export class GitHubAppAuth {
         }
     }
 
+    /**
+     * Generates a short-lived JWT for GitHub App authentication.
+     */
     private generateJwt(): string {
         const privateKey = fs.readFileSync(
             this.privateKeyPath,
@@ -59,21 +77,49 @@ export class GitHubAppAuth {
         );
     }
 
+    /**
+     * Returns a valid GitHub App installation token.
+     *
+     * The token is cached and reused until it is close to expiry.
+     * A new token is generated automatically when required.
+     */
     async generateInstallationToken(): Promise<string> {
+        const currentTime = Date.now();
+
+        /*
+         * Reuse the existing token if it is still valid.
+         *
+         * Five-minute safety buffer is used so that a token
+         * close to expiry is not reused for a new API request.
+         */
+        const tokenIsValid =
+            this.installationToken &&
+            currentTime <
+                this.installationTokenExpiresAt - 5 * 60 * 1000;
+
+        if (tokenIsValid) {
+            return this.installationToken;
+        }
+
         const appJwt = this.generateJwt();
 
-        const response = await this.request.post(`https://api.github.com/app/installations/${this.installationId}/access_tokens`,
+        const response = await this.request.post(
+            `https://api.github.com/app/installations/${this.installationId}/access_tokens`,
             {
                 headers: {
-                    Accept: 'application/vnd.github+json',
-                    Authorization: `Bearer ${appJwt}`,
-                    'X-GitHub-Api-Version': '2026-03-10',
+                    Accept:
+                        'application/vnd.github+json',
+                    Authorization:
+                        `Bearer ${appJwt}`,
+                    'X-GitHub-Api-Version':
+                        '2026-03-10',
                 },
             }
         );
 
         if (!response.ok()) {
-            const responseBody = await response.text();
+            const responseBody =
+                await response.text();
 
             throw new Error(
                 `Failed to generate GitHub installation token. ` +
@@ -82,8 +128,26 @@ export class GitHubAppAuth {
             );
         }
 
-        const responseBody = await response.json();
+        const responseBody =
+            (await response.json()) as InstallationTokenResponse;
 
-        return responseBody.token;
+        if (
+            !responseBody.token ||
+            !responseBody.expires_at
+        ) {
+            throw new Error(
+                'GitHub installation token response did not contain token or expires_at.'
+            );
+        }
+
+        this.installationToken =
+            responseBody.token;
+
+        this.installationTokenExpiresAt =
+            new Date(
+                responseBody.expires_at
+            ).getTime();
+
+        return this.installationToken;
     }
 }
