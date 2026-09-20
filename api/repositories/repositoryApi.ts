@@ -14,7 +14,29 @@ export class RepositoryApi {
      * GitHub API:
      * GET /repos/{owner}/{repo}
      */
-    async getRepository(owner: string, repository: string): Promise<APIResponse> {
-        return await this.githubApiClient.get(`/repos/${owner}/${repository}`);
+    async getRepository(
+        owner: string,
+        repository: string
+    ): Promise<APIResponse> {
+        return await this.githubApiClient.get(
+            `/repos/${owner}/${repository}`
+        );
+    }
+
+    /**
+     * Update repository details.
+     *
+     * GitHub API:
+     * PATCH /repos/{owner}/{repo}
+     */
+    async updateRepository(
+        owner: string,
+        repository: string,
+        data: object
+    ): Promise<APIResponse> {
+        return await this.githubApiClient.patch(
+            `/repos/${owner}/${repository}`,
+            data
+        );
     }
 }
