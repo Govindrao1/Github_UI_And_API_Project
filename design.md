@@ -2,99 +2,86 @@
 
 ## 1. Purpose
 
-This document is the **source of truth for the architecture and design decisions** of the GitHub UI and API automation framework.
+This document is the source of truth for the architecture and design of the current GitHub UI and API automation project.
 
-The framework is built using Playwright and TypeScript and is designed to automate GitHub through:
+The framework is built with Playwright and TypeScript and separates UI automation, API authentication, API transport, API resources, fixtures, and test validation.
 
-- UI automation
-- REST API automation
-- Hybrid UI + API workflows
+Any project-level architecture or design change must be reflected here and synchronized with `README.MD`.
 
-Architecture and framework-level changes must be reflected in this document.
+## 2. Current Implementation Baseline
 
----
-
-# 2. Technology Stack
-
-| Area | Technology |
-|---|---|
-| Language | TypeScript |
-| Automation Framework | Playwright |
-| Test Runner | Playwright Test |
-| API Automation | Playwright APIRequestContext |
-| Runtime | Node.js |
-| Environment Configuration | dotenv |
-| Version Control | Git |
-| Browser Coverage | Chromium, Firefox, WebKit |
-
----
-
-# 3. High-Level Architecture
+The current implementation contains:
 
 ```text
-                    GitHub Automation Framework
-                              │
-                ┌─────────────┴─────────────┐
-                │                           │
-             UI Layer                   API Layer
-                │                           │
-                ▼                           ▼
-         Page Objects                 API Client
-                │                           │
-                │                    GitHub App Auth
-                │                           │
-                │                           ▼
-                │                    JWT Generation
-                │                           │
-                │                           ▼
-                │               Installation Access Token
-                │                           │
-                │                           ▼
-                │                    Token Cache
-                │                           │
-                └─────────────┬─────────────┘
-                              │
-                              ▼
-                       GitHub Platform
+UI Login
+API Health
+Repository GET
+Repository UPDATE
+Repository DELETE
+GitHub App JWT authentication
+Installation access-token caching
+Shared Playwright fixtures
 ```
 
----
+Repository CREATE is not implemented with the current installation-token authentication context.
 
-# 4. Project Structure
+## 3. High-Level Architecture
+
+```text
+                         Playwright Tests
+                               │
+                 ┌─────────────┴─────────────┐
+                 │                           │
+                 ▼                           ▼
+             UI Layer                    API Layer
+                 │                           │
+                 ▼                           ▼
+           LoginPage                 RepositoryApi
+                                             │
+                                             ▼
+                                      GitHubApiClient
+                                             │
+                                             ▼
+                                       GitHubAppAuth
+                                             │
+                          ┌──────────────────┴──────────────────┐
+                          │                                     │
+                     JWT Generation                    Installation Token
+                          │                                     │
+                          └──────────────────┬──────────────────┘
+                                             │
+                                             ▼
+                                      GitHub REST API
+```
+
+## 4. Project Structure
 
 ```text
 GitHub/
-│
 ├── api/
 │   ├── auth/
 │   │   └── githubAppAuth.ts
-│   │
-│   └── client/
-│       └── githubApiClient.ts
-│
+│   ├── client/
+│   │   └── githubApiClient.ts
+│   └── repositories/
+│       └── repositoryApi.ts
 ├── components/
-│
 ├── constants/
-│
 ├── data/
-│
 ├── fixtures/
 │   └── basefixture.ts
-│
 ├── pages/
 │   └── loginpage.ts
-│
-├── secrets/
-│   └── <GitHub App private key>.pem
-│
 ├── tests/
 │   ├── UI_login.spec.ts
-│   │
 │   └── api/
-│       └── api_health.spec.ts
-│
+│       ├── api_health.spec.ts
+│       └── repositories/
+│           ├── get_repository.spec.ts
+│           ├── update_repository.spec.ts
+│           └── delete_repository.spec.ts
 ├── utils/
-│
+├── secrets/
 ├── .env
 ├── .env.example
 ├── .gitignore
@@ -106,265 +93,39 @@ GitHub/
 └── tsconfig.json
 ```
 
-The framework is being developed incrementally. Empty or future-purpose directories are not required to contain implementation until that layer is introduced.
+The structure separates responsibilities so that test cases do not need to know authentication or low-level HTTP details.
 
----
+## 5. UI Architecture
 
-# 5. UI Automation Architecture
-
-## 5.1 Page Object Model
-
-UI automation follows the Page Object Model.
-
-Current page object:
+The UI layer uses the Page Object Model.
 
 ```text
-pages/loginpage.ts
+UI Test
+   │
+   ▼
+LoginPage
+   │
+   ▼
+Playwright Page
+   │
+   ▼
+GitHub Web UI
 ```
 
-Responsibilities:
+`LoginPage` owns:
 
-- Navigate to GitHub login
-- Enter username
-- Enter password
-- Click Sign in
-- Validate successful login
-- Detect login failure
+- Login-page navigation
+- Username entry
+- Password entry
+- Exact Sign in button interaction
+- Login failure detection
+- Successful-login validation
 
-Tests should interact with page objects rather than directly implementing page locators and actions wherever practical.
+The UI test should remain focused on the login business flow and should not contain locator details that belong in the page object.
 
----
+## 6. Fixture Architecture
 
-# 6. API Automation Architecture
-
-The API layer is divided into:
-
-```text
-API Test
-    │
-    ▼
-API Domain Layer
-    │
-    ▼
-GitHub API Client
-    │
-    ▼
-GitHub App Authentication
-    │
-    ▼
-GitHub REST API
-```
-
-The current common API client is:
-
-```text
-api/client/githubApiClient.ts
-```
-
-It provides reusable HTTP operations:
-
-```text
-GET
-POST
-PATCH
-DELETE
-```
-
-Domain-specific API modules will be added incrementally.
-
-Planned examples:
-
-```text
-api/
-├── repositories/
-├── issues/
-├── pullRequests/
-├── branches/
-├── commits/
-└── actions/
-```
-
----
-
-# 7. GitHub App Authentication Architecture
-
-## 7.1 Authentication Decision
-
-The framework uses **GitHub App authentication** instead of requiring a manually created Personal Access Token for API automation.
-
-Authentication implementation:
-
-```text
-api/auth/githubAppAuth.ts
-```
-
----
-
-## 7.2 Authentication Flow
-
-```text
-GitHub App
-     │
-     ▼
-Private Key (.pem)
-     │
-     ▼
-Generate App JWT
-     │
-     ▼
-GitHub App Installation
-     │
-     ▼
-Generate Installation Access Token
-     │
-     ▼
-Cache Installation Token
-     │
-     ▼
-GitHub API Client
-     │
-     ▼
-GitHub REST API
-```
-
----
-
-# 8. JWT Generation
-
-The authentication component generates a short-lived JWT using the GitHub App private key.
-
-JWT design:
-
-- Signing algorithm: RS256
-- Issuer: GitHub App Client ID
-- Issued-at timestamp is set slightly in the past
-- Short expiration period is used
-- Private key is loaded from the protected `secrets/` directory
-
-The JWT is used only to authenticate the GitHub App when requesting an installation access token.
-
-The JWT itself is not used as the authorization token for normal repository API calls.
-
----
-
-# 9. Installation Access Token
-
-After generating the GitHub App JWT, the authentication component requests an installation access token for the configured GitHub App installation.
-
-Configuration:
-
-```env
-GITHUB_APP_CLIENT_ID=...
-GITHUB_INSTALLATION_ID=...
-GITHUB_APP_PRIVATE_KEY_PATH=./secrets/<private-key>.pem
-```
-
-The installation access token is then supplied to the API client through:
-
-```http
-Authorization: Bearer <installation-token>
-```
-
-The token permissions are limited by the GitHub App installation permissions and selected repositories.
-
----
-
-# 10. Installation Token Caching
-
-## 10.1 Design Decision
-
-The framework caches the GitHub App installation access token.
-
-A new installation token is **not generated for every API request**.
-
-This avoids unnecessary token-generation requests and allows multiple API operations to reuse the same valid installation token.
-
----
-
-## 10.2 Token Cache Flow
-
-```text
-API Request
-     │
-     ▼
-Check cached installation token
-     │
-     ├── Valid
-     │     │
-     │     ▼
-     │  Reuse token
-     │
-     └── Missing / Near Expiry
-           │
-           ▼
-       Generate App JWT
-           │
-           ▼
-       Request new installation token
-           │
-           ▼
-       Store token + expiry
-           │
-           ▼
-       Use token
-```
-
----
-
-## 10.3 Expiration Handling
-
-The GitHub installation token response contains:
-
-```text
-token
-expires_at
-```
-
-The framework stores both values.
-
-Before reusing a cached token, the framework checks its expiration time.
-
-A safety buffer is applied so that a token close to expiration is treated as invalid and replaced with a newly generated installation token.
-
-Current safety buffer:
-
-```text
-5 minutes
-```
-
-This prevents an API request from intentionally starting with a token that is close to expiration.
-
----
-
-# 11. GitHub API Client
-
-The API client:
-
-```text
-api/client/githubApiClient.ts
-```
-
-is responsible for:
-
-- Holding the Playwright `APIRequestContext`
-- Reading the configured GitHub API base URL
-- Obtaining an installation access token through `GitHubAppAuth`
-- Building common authorization headers
-- Executing HTTP requests
-
-The client should remain generic.
-
-GitHub resource-specific behavior should be implemented in domain API classes rather than adding repository/issue/pull-request business logic directly into the common client.
-
----
-
-# 12. Fixtures Architecture
-
-Shared fixtures are located at:
-
-```text
-fixtures/basefixture.ts
-```
+`fixtures/basefixture.ts` extends the Playwright base test.
 
 Current custom fixtures:
 
@@ -373,369 +134,511 @@ loginPage
 githubApiClient
 ```
 
-Conceptually:
+Architecture:
 
 ```text
-Playwright Test
-       │
-       ▼
-baseFixture
-       │
-       ├── loginPage
-       │
-       └── githubApiClient
+Playwright base test
+        │
+        ├── page fixture
+        │      ↓
+        │   LoginPage
+        │
+        └── request fixture
+               ↓
+         GitHubApiClient
 ```
 
-This keeps test setup reusable and prevents repeated construction of common framework objects.
+This allows both UI and API dependencies to be injected directly into tests.
 
----
+## 7. API Architecture
 
-# 13. Environment Configuration
+The API architecture has three primary layers.
 
-Environment-specific values are stored in `.env`.
-
-Example categories:
+### 7.1 API Resource Layer
 
 ```text
-GitHub UI
-GitHub API
-GitHub App Authentication
+api/repositories/repositoryApi.ts
 ```
 
-Important configuration values include:
-
-```env
-GITHUB_BASE_URL=https://github.com
-GITHUB_API_BASE_URL=https://api.github.com
-
-GITHUB_USERNAME=...
-GITHUB_PASSWORD=...
-
-GITHUB_APP_ID=...
-GITHUB_APP_CLIENT_ID=...
-GITHUB_INSTALLATION_ID=...
-GITHUB_APP_PRIVATE_KEY_PATH=./secrets/<private-key>.pem
-```
-
-The actual secret values must not be committed to Git.
-
-`.env.example` provides the safe configuration template.
-
----
-
-# 14. Secret Management
-
-The following are excluded from Git:
+Responsible for repository-level operations:
 
 ```text
-.env
-secrets/
-*.pem
+getRepository()
+updateRepository()
+deleteRepository()
 ```
 
-Generated dependencies and test artifacts are also excluded:
+The resource layer should expose business-oriented methods rather than raw HTTP implementation details.
+
+### 7.2 API Client Layer
 
 ```text
-node_modules/
-playwright-report/
-test-results/
-blob-report/
+api/client/githubApiClient.ts
 ```
 
-The GitHub App private key must remain outside version control.
+Responsible for:
 
----
+- Building API URLs
+- Obtaining authentication headers
+- Sending GET requests
+- Sending POST requests
+- Sending PATCH requests
+- Sending DELETE requests
 
-# 15. Test Architecture
+The API client should remain reusable across different GitHub API resource classes.
 
-Tests are organized by automation layer.
-
-Current structure:
+### 7.3 Authentication Layer
 
 ```text
-tests/
-├── UI_login.spec.ts
-└── api/
-    └── api_health.spec.ts
+api/auth/githubAppAuth.ts
 ```
 
-Future structure:
+Responsible for GitHub App authentication and installation-token lifecycle management.
+
+## 8. GitHub App Authentication Design
+
+The project uses the following authentication flow:
 
 ```text
-tests/
-├── ui/
-├── api/
-└── hybrid/
+GITHUB_APP_CLIENT_ID
+        │
+        ▼
+Generate App JWT using RS256
+        │
+        ▼
+POST /app/installations/{installation_id}/access_tokens
+        │
+        ▼
+Installation access token
+        │
+        ▼
+Cache token in memory
+        │
+        ▼
+Reuse token for API requests
 ```
 
-The framework will expand these directories as the corresponding automation layers are implemented.
+The current authentication class validates:
 
----
+- `GITHUB_APP_CLIENT_ID`
+- `GITHUB_INSTALLATION_ID`
+- `GITHUB_APP_PRIVATE_KEY_PATH`
 
-# 16. API Health Check
+The private key is read only when generating the App JWT.
 
-Current API smoke test:
+## 9. JWT Design
+
+The App JWT is generated using the RSA private key and RS256.
+
+The implementation includes:
 
 ```text
-tests/api/api_health.spec.ts
+iat
+exp
+iss
 ```
 
-Purpose:
+The generated JWT is short-lived and is used to obtain an installation access token.
 
-- Verify GitHub API connectivity
-- Verify GitHub App authentication
-- Verify installation token generation
-- Verify installation token authorization
-- Verify access to the configured repository
+The implementation intentionally keeps JWT generation inside `GitHubAppAuth` so that resource and test layers remain independent of signing details.
 
-Current validation repository:
+## 10. Installation Access Token Design
+
+The installation access token represents the installed GitHub App and is used by `GitHubApiClient` for API requests.
+
+The authentication class caches the token in memory:
+
+```text
+installationToken
+installationTokenExpiresAt
+```
+
+The token is reused while it remains sufficiently far from expiry. A refresh is performed when the cached token is close to expiration.
+
+This avoids unnecessary token-generation API calls during a test run.
+
+## 11. API Client Request Flow
+
+Every API request follows this sequence:
+
+```text
+RepositoryApi method
+        ↓
+GitHubApiClient method
+        ↓
+getHeaders()
+        ↓
+GitHubAppAuth.generateInstallationToken()
+        ↓
+Cached token or new token
+        ↓
+GitHub REST API request
+        ↓
+APIResponse returned to RepositoryApi
+        ↓
+Test validates response
+```
+
+Tests therefore remain independent of token-generation mechanics.
+
+## 12. Repository GET Design
+
+Endpoint:
+
+```text
+GET /repos/{owner}/{repo}
+```
+
+Implementation:
+
+```text
+RepositoryApi.getRepository()
+        ↓
+GitHubApiClient.get()
+        ↓
+GitHub REST API
+```
+
+The GET test verifies:
+
+- HTTP status is `200`
+- Repository full name
+- Repository name
+- Owner login
+- Visibility
+
+## 13. Repository UPDATE Design
+
+Endpoint:
+
+```text
+PATCH /repos/{owner}/{repo}
+```
+
+Implementation:
+
+```text
+RepositoryApi.updateRepository()
+        ↓
+GitHubApiClient.patch()
+        ↓
+GitHub REST API
+```
+
+The UPDATE test uses the following controlled pattern:
+
+```text
+Read original repository state
+        ↓
+Create test description
+        ↓
+PATCH repository
+        ↓
+Validate updated response
+        ↓
+Restore original description
+```
+
+Restoration is performed in a `finally` block only after a successful update, preventing cleanup failures from hiding the original test failure unnecessarily.
+
+## 14. Repository DELETE Design
+
+Endpoint:
+
+```text
+DELETE /repos/{owner}/{repo}
+```
+
+Implementation:
+
+```text
+RepositoryApi.deleteRepository()
+        ↓
+GitHubApiClient.delete()
+        ↓
+GitHub REST API
+```
+
+The DELETE test uses a disposable repository and follows this lifecycle:
+
+```text
+1. GET repository
+   ↓
+2. Verify repository exists
+   ↓
+3. DELETE repository
+   ↓
+4. Verify status 204
+   ↓
+5. GET repository again
+   ↓
+6. Verify status 404
+```
+
+The disposable repository used for the completed validation was:
+
+```text
+Govindrao1/Github_Delete_Test
+```
+
+It was deleted successfully and must not be assumed to exist for future test runs.
+
+### DELETE Safety Rule
+
+The DELETE test must never target the main project repository:
 
 ```text
 Govindrao1/Github_UI_And_API_Project
 ```
 
-Expected successful response:
+A new disposable repository must be created and explicitly granted to the GitHub App installation before repeating destructive DELETE validation.
+
+## 15. Repository CREATE Limitation
+
+Repository CREATE is deliberately excluded from the current `RepositoryApi` implementation.
+
+The current project authenticates using a GitHub App installation access token. An attempt to call:
 
 ```text
-HTTP 200
+POST /user/repos
 ```
 
-The health test has been successfully executed after implementing installation-token caching.
-
----
-
-# 17. UI and API Strategy
-
-## UI Automation
-
-Use UI automation for:
-
-- User-facing workflows
-- Browser behavior
-- Page interaction
-- UI validations
-- Authentication flows
-- End-to-end user journeys
-
-## API Automation
-
-Use API automation for:
-
-- Backend validation
-- CRUD operations
-- Test data creation
-- Test data cleanup
-- Permission validation
-- Response validation
-- Large data operations
-
-## Hybrid Automation
-
-Use both layers when the workflow benefits from combining API and UI.
-
-Example:
+with that token returned:
 
 ```text
-API
- │
- └── Create test data
-          │
-          ▼
-        UI
-          │
-          └── Validate user-facing behavior
-                    │
-                    ▼
-                   API
-                    │
-                    └── Verify backend state
+403 Resource not accessible by integration
 ```
 
----
-
-# 18. Repository API Design — Next Implementation
-
-The next API domain to implement is the Repository API.
-
-Planned structure:
+Therefore the current architecture does not expose:
 
 ```text
-api/
-├── auth/
-│   └── githubAppAuth.ts
-│
-├── client/
-│   └── githubApiClient.ts
-│
-└── repositories/
-    └── repositoryApi.ts
+createRepository()
 ```
 
-Initial operation:
+under the current authentication model.
+
+This design decision is intentionally documented rather than hiding the limitation behind a test or an unsupported API abstraction.
+
+A future implementation of repository creation would require a suitable user-context authentication model or another explicitly supported GitHub authentication mechanism. Such a change would require an architecture review before implementation.
+
+## 16. Current API Capability Matrix
+
+| Operation | Endpoint | Current Status |
+|---|---|---|
+| GET | `GET /repos/{owner}/{repo}` | ✅ Implemented |
+| UPDATE | `PATCH /repos/{owner}/{repo}` | ✅ Implemented |
+| CREATE | `POST /user/repos` | ⚠️ Not implemented with current authentication context |
+| DELETE | `DELETE /repos/{owner}/{repo}` | ✅ Implemented |
+
+## 17. Environment Design
+
+The project uses environment variables for runtime configuration.
+
+Current configuration is loaded through:
+
+```typescript
+dotenv.config({ quiet: true });
+```
+
+Important values include:
 
 ```text
-GET repository
+GITHUB_BASE_URL
+GITHUB_API_BASE_URL
+GITHUB_USERNAME
+GITHUB_PASSWORD
+GITHUB_APP_CLIENT_ID
+GITHUB_INSTALLATION_ID
+GITHUB_APP_PRIVATE_KEY_PATH
 ```
 
-Planned repository operations:
+The application code reads these values at runtime rather than embedding credentials in source code.
+
+## 18. Secret Management
+
+Sensitive values are intentionally excluded from source control.
+
+Rules:
 
 ```text
-GET repository
-Create repository
-Update repository
-Delete repository
+.env                     → local only
+secrets/*                → local only
+.env.example             → safe configuration template
+.gitignore               → excludes sensitive files
 ```
 
-Tests will be added under:
+No test or utility should print secret values.
+
+## 19. Playwright Configuration Design
+
+`playwright.config.ts` currently defines:
+
+- `testDir: './tests'`
+- HTML reporter
+- `GITHUB_BASE_URL` as the UI base URL
+- `trace: 'on-first-retry'`
+- screenshots on failure
+- video retained on failure
+- Chromium project
+- Firefox project
+- WebKit project
+
+The API client uses its own `GITHUB_API_BASE_URL` value when constructing API endpoints.
+
+The Playwright request fixture is used through `basefixture.ts`; it is not overridden through the Playwright configuration's `use` object.
+
+## 20. TypeScript Design
+
+The project uses strict TypeScript configuration.
+
+Current compiler goals include:
 
 ```text
-tests/api/repositories/
+target: ES2022
+module: commonjs
+moduleResolution: node
+strict: true
+esModuleInterop: true
+resolveJsonModule: true
+noEmit: true
 ```
 
-The repository API layer will reuse the existing:
+Node and Playwright types are included so that environment and framework types are recognized during compilation.
+
+Validation command:
+
+```powershell
+npx tsc --noEmit
+```
+
+## 21. Test Design Principles
+
+Tests are responsible for:
+
+- Calling resource methods
+- Validating HTTP status codes
+- Validating important response fields
+- Logging useful test diagnostics
+
+API resource classes are responsible for:
+
+- Defining API operations
+- Passing resource-specific endpoints to the client
+
+The API client is responsible for:
+
+- Transport
+- Common headers
+- Authentication integration
+
+Authentication is responsible for:
+
+- JWT generation
+- Installation-token generation
+- Token caching and refresh
+
+This separation keeps the framework maintainable as API coverage grows.
+
+## 22. Destructive Test Strategy
+
+Destructive APIs require a disposable resource.
+
+The DELETE strategy is:
 
 ```text
-GitHubAppAuth
-       ↓
-GitHubApiClient
+Create disposable repository
+        ↓
+Grant GitHub App installation access
+        ↓
+Run DELETE validation
+        ↓
+Repository removed
 ```
 
-and will not implement authentication independently.
+The main automation repository must never be used as the DELETE target.
 
----
+## 23. Git Strategy
 
-# 19. Future API Domains
-
-After Repository API implementation, planned domains include:
+The project uses:
 
 ```text
-Issues
-Pull Requests
-Branches
-Commits
-Actions
-Releases
-Webhooks
-Users
+Branch: master
+Remote: origin
 ```
 
-These will be introduced incrementally based on project requirements.
+The repository is maintained through normal Git operations:
 
----
+```powershell
+git status
+git diff
+git add
+git commit
+git push
+```
 
-# 20. Git Strategy
+Before pushing, verify that sensitive files are not staged.
 
-The project uses Git for version control.
+## 24. Documentation Synchronization
 
-Current local commits include:
+`design.md` is the architectural source of truth.
+
+`README.MD` is the project-level implementation and usage documentation.
+
+Whenever there is a project-level change such as:
+
+- New API resource
+- New authentication mechanism
+- Change in fixture architecture
+- Change in test organization
+- Change in security strategy
+- Change in major Playwright configuration
+
+both `design.md` and `README.MD` must be updated in the same development cycle.
+
+## 25. Current Baseline
+
+The completed repository API baseline is:
 
 ```text
-5669401  Cache GitHub App installation token
-02bf496  Initial Playwright GitHub automation framework
+            Repository API
+                  │
+       ┌──────────┼──────────┐
+       │          │          │
+       ▼          ▼          ▼
+      GET       UPDATE     DELETE
+       │          │          │
+       ▼          ▼          ▼
+      200        200        204
+                             │
+                             ▼
+                            GET
+                             │
+                             ▼
+                            404
 ```
 
-The README has also been updated and committed after documenting the current framework state.
-
-The local repository has not yet been pushed to a remote repository.
-
-Architecture changes should be committed separately from feature changes when practical so that framework evolution remains traceable.
-
----
-
-# 21. Current Architecture Baseline
-
-The framework currently has the following completed architecture:
+The current implementation has successfully validated:
 
 ```text
-                    Playwright Test
-                          │
-             ┌────────────┴────────────┐
-             │                         │
-          UI Tests                  API Tests
-             │                         │
-             ▼                         ▼
-        LoginPage              GitHubApiClient
-                                       │
-                                       ▼
-                                GitHubAppAuth
-                                       │
-                           ┌───────────┴───────────┐
-                           │                       │
-                     Generate JWT          Cached Token
-                           │                       │
-                           ▼                       │
-                  Installation Token ◄────────────┘
-                           │
-                           ▼
-                     GitHub REST API
+TypeScript compilation       ✅
+Repository GET               ✅
+Repository UPDATE            ✅
+Repository DELETE            ✅
 ```
 
-This is the current source-of-truth architecture.
+Repository CREATE remains intentionally unsupported under the current installation-token authentication approach.
 
----
+## 26. Next Change Rule
 
-# 22. Current Development Status
+Before introducing the next project-level feature, verify the current working tree and review the impact on:
 
 ```text
-Playwright + TypeScript setup          ✅
-UI Login automation                    ✅
-Page Object Model                      ✅
-Shared fixtures                        ✅
-GitHub API client                      ✅
-GitHub App authentication              ✅
-JWT generation                         ✅
-Installation token generation          ✅
-Installation token caching             ✅
-API health check                       ✅
-Environment configuration              ✅
-Secret protection                      ✅
-Git initialization                     ✅
-Initial Git commit                     ✅
-README documentation                   ✅
-Architecture documentation             ✅
-
-Repository API                         ⏳ Next
-Issues API                             ⏳
-Pull Requests API                      ⏳
-Branches API                           ⏳
-Commits API                            ⏳
-Actions API                            ⏳
-Hybrid workflows                       ⏳
-CI/CD                                  ⏳
+API layer
+Authentication layer
+Fixtures
+Tests
+README.MD
+design.md
 ```
 
----
-
-# 23. Architecture Principles
-
-The framework should follow these principles:
-
-1. **Separation of concerns**  
-   Authentication, API transport, domain APIs, page objects, fixtures, and tests should remain separated.
-
-2. **Reusable authentication**  
-   Authentication should be implemented once and reused by all API domains.
-
-3. **Reusable API client**  
-   Common HTTP behavior belongs in `githubApiClient.ts`.
-
-4. **Domain-specific API classes**  
-   Repository, issue, pull-request, and other domain operations should not be placed directly in the common API client.
-
-5. **Secure configuration**  
-   Credentials and private keys must remain outside source control.
-
-6. **Incremental implementation**  
-   Build and validate one API domain at a time.
-
-7. **Test-layer separation**  
-   UI, API, and hybrid tests should remain distinguishable.
-
-8. **Documentation synchronization**  
-   Architecture changes must be reflected in `design.md`, and project status/documentation changes must be reflected in `README.MD`.
-
-9. **Stable checkpoints**  
-   Significant architecture changes should be validated and committed before moving to the next layer.
-
-10. **No unnecessary duplication**  
-    Authentication and common infrastructure should not be reimplemented inside individual API tests or domain modules.
+No architectural change should be introduced without keeping the implementation and documentation synchronized.

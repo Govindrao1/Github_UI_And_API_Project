@@ -39,4 +39,19 @@ export class RepositoryApi {
             data
         );
     }
+
+    /**
+     * Delete repository.
+     *
+     * GitHub API:
+     * DELETE /repos/{owner}/{repo}
+     */
+    async deleteRepository(
+        owner: string,
+        repository: string
+    ): Promise<APIResponse> {
+        return await this.githubApiClient.delete(
+            `/repos/${owner}/${repository}`
+        );
+    }
 }

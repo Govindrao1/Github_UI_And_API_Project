@@ -1,92 +1,73 @@
-# GitHub UI and API Automation Framework
+# GitHub UI and API Automation Project
 
-A Playwright + TypeScript automation framework for testing GitHub UI and REST APIs.
+## Overview
 
-The framework currently supports GitHub UI login automation and GitHub API automation using **GitHub App authentication with programmatically generated installation access tokens**.
+This project is a Playwright + TypeScript automation framework for testing GitHub UI and REST API functionality.
 
----
+The framework currently supports:
+
+- GitHub UI login automation
+- GitHub API health validation
+- Repository GET automation
+- Repository UPDATE automation
+- Repository DELETE automation using a disposable test repository
+- GitHub App authentication using JWT and installation access tokens
+- Installation-token caching and reuse during the test run
+
+The project is designed so that UI and API automation share the same Playwright test infrastructure while keeping page objects, fixtures, API clients, authentication, and API resource classes separated.
 
 ## Current Status
 
-### Completed
-
-- Playwright + TypeScript project setup
-- Playwright configuration for Chromium, Firefox, and WebKit
-- GitHub UI login automation
-- Page Object Model for GitHub login
-- Shared Playwright fixtures
-- GitHub API client
-- GitHub App authentication
-- JWT generation using the GitHub App private key
-- Installation access token generation
-- Installation token caching and reuse
-- API health/authentication test
-- Environment-based configuration
-- Secret/private-key protection through `.gitignore`
-- Local Git repository initialized
-- Initial framework commit created
-- GitHub App authentication changes committed
-
-### Current Git commits
-
-```text
-5669401  Cache GitHub App installation token
-02bf496  Initial Playwright GitHub automation framework
-```
-
-The commits currently exist in the **local Git repository**. They have not been pushed to a remote repository yet.
-
----
+| Area | Status |
+|---|---|
+| UI Login | ✅ Implemented |
+| API Health | ✅ Implemented |
+| Repository GET | ✅ Implemented |
+| Repository UPDATE | ✅ Implemented |
+| Repository CREATE | ⚠️ Not supported with current installation-token authentication model |
+| Repository DELETE | ✅ Implemented |
+| GitHub App JWT authentication | ✅ Implemented |
+| Installation token caching | ✅ Implemented |
+| TypeScript validation | ✅ Passing |
 
 ## Technology Stack
 
-- **Language:** TypeScript
-- **Automation Framework:** Playwright
-- **Runtime:** Node.js
-- **Test Runner:** Playwright Test
-- **API Automation:** Playwright APIRequestContext
-- **Authentication:** GitHub App + JWT + Installation Access Token
-- **Environment Configuration:** dotenv
-- **Version Control:** Git
-- **IDE:** Visual Studio Code
-
----
+- Playwright Test
+- TypeScript
+- Node.js
+- dotenv
+- jsonwebtoken
+- GitHub REST API
+- GitHub App authentication
 
 ## Project Structure
 
 ```text
 GitHub/
-│
 ├── api/
 │   ├── auth/
 │   │   └── githubAppAuth.ts
-│   │
-│   └── client/
-│       └── githubApiClient.ts
-│
+│   ├── client/
+│   │   └── githubApiClient.ts
+│   └── repositories/
+│       └── repositoryApi.ts
 ├── components/
-│
 ├── constants/
-│
 ├── data/
-│
 ├── fixtures/
 │   └── basefixture.ts
-│
 ├── pages/
 │   └── loginpage.ts
-│
-├── secrets/
-│   └── <GitHub App private key>.pem
-│
 ├── tests/
 │   ├── UI_login.spec.ts
-│   │
 │   └── api/
-│       └── api_health.spec.ts
-│
+│       ├── api_health.spec.ts
+│       └── repositories/
+│           ├── get_repository.spec.ts
+│           ├── update_repository.spec.ts
+│           └── delete_repository.spec.ts
 ├── utils/
-│
+├── secrets/
 ├── .env
 ├── .env.example
 ├── .gitignore
@@ -94,60 +75,117 @@ GitHub/
 ├── package-lock.json
 ├── playwright.config.ts
 ├── README.MD
+├── design.md
 └── tsconfig.json
 ```
 
-> `secrets/`, `.env`, `node_modules/`, Playwright reports, and test results are excluded from Git.
+## UI Automation
 
----
+The UI layer uses Playwright Page Object Model.
 
-# UI Automation
+`pages/loginpage.ts` encapsulates GitHub login interactions such as:
 
-## GitHub Login
+- Navigating to the login page
+- Entering username
+- Entering password
+- Clicking the exact `Sign in` button
+- Detecting the login error alert
+- Verifying that the Dashboard is visible after successful login
 
-The current UI automation covers GitHub login using the Page Object Model.
-
-### Page Object
+The UI test is located at:
 
 ```text
-pages/loginpage.ts
+tests/UI_login.spec.ts
 ```
 
-The `LoginPage` handles:
+The test runs against Chromium, Firefox, and WebKit through the Playwright projects configured in `playwright.config.ts`.
 
-- Navigation to GitHub login
-- Username entry
-- Password entry
-- Login button interaction
-- Login success verification
-- Login failure detection
+## Playwright Configuration
 
-The login page uses semantic Playwright locators where appropriate.
-
-Example:
+The framework loads environment variables using dotenv:
 
 ```typescript
-page.getByRole('button', {
-    name: 'Sign in',
-    exact: true
-});
+dotenv.config({ quiet: true });
 ```
 
-The `exact: true` option prevents the locator from also matching GitHub's passkey sign-in button.
-
----
-
-# API Automation
-
-## GitHub API Client
-
-The common API client is:
+The current base URL is provided through:
 
 ```text
-api/client/githubApiClient.ts
+GITHUB_BASE_URL
 ```
 
-It provides reusable methods for:
+The Playwright configuration uses:
+
+- HTML reporter
+- `trace: 'on-first-retry'`
+- Screenshots on failure
+- Video retention on failure
+- Chromium
+- Firefox
+- WebKit
+
+The API base URL is kept separate through:
+
+```text
+GITHUB_API_BASE_URL
+```
+
+## Shared Fixtures
+
+`fixtures/basefixture.ts` extends Playwright's base test with reusable project fixtures:
+
+```text
+loginPage
+```
+
+and
+
+```text
+githubApiClient
+```
+
+This keeps test cases focused on business actions instead of repeatedly constructing page objects and API clients.
+
+## GitHub App Authentication
+
+The API layer authenticates through the GitHub App installed for the test repository.
+
+The authentication flow is:
+
+```text
+Environment configuration
+        ↓
+GitHub App client ID
+        ↓
+Generate RS256 JWT
+        ↓
+GitHub App installation
+        ↓
+Generate installation access token
+        ↓
+Cache token until near expiry
+        ↓
+Use token for GitHub API requests
+```
+
+`api/auth/githubAppAuth.ts` is responsible for:
+
+- Reading the GitHub App client ID
+- Reading the installation ID
+- Reading the private-key path
+- Validating required configuration
+- Generating the App JWT
+- Requesting the installation access token
+- Caching the installation token
+- Refreshing the token when it is close to expiry
+
+The private key is stored locally under `secrets/` and is excluded from Git through `.gitignore`.
+
+## API Client
+
+`api/client/githubApiClient.ts` is the common HTTP layer for GitHub API requests.
+
+It currently provides:
 
 ```text
 GET
@@ -156,444 +194,274 @@ PATCH
 DELETE
 ```
 
-The client uses the GitHub REST API base URL configured through:
+Every request obtains the current installation access token through the authentication layer and sends the GitHub API headers consistently.
 
-```env
-GITHUB_API_BASE_URL=https://api.github.com
-```
-
----
-
-# GitHub App Authentication
-
-The framework does **not** use a manually created Personal Access Token for API authentication.
-
-Instead, API authentication follows this flow:
+The current GitHub API version configured by the project is:
 
 ```text
-GitHub App
-     │
-     ▼
-Private Key (.pem)
-     │
-     ▼
-Generate App JWT
-     │
-     ▼
-GitHub Installation
-     │
-     ▼
-Generate Installation Access Token
-     │
-     ▼
-Cache Installation Token
-     │
-     ▼
+2026-03-10
+```
+
+## Repository API
+
+`api/repositories/repositoryApi.ts` contains repository-level API operations.
+
+### GET Repository
+
+Endpoint:
+
+```text
+GET /repos/{owner}/{repo}
+```
+
+Implemented through:
+
+```text
+getRepository(owner, repository)
+```
+
+The GET test validates repository identity, owner, full name, and visibility.
+
+### UPDATE Repository
+
+Endpoint:
+
+```text
+PATCH /repos/{owner}/{repo}
+```
+
+Implemented through:
+
+```text
+updateRepository(owner, repository, data)
+```
+
+The UPDATE test:
+
+1. Reads the original description.
+2. Updates the description.
+3. Validates the response and returned repository details.
+4. Restores the original description in a `finally` block when the update succeeds.
+
+This prevents the main repository from being permanently modified by the automation test.
+
+### DELETE Repository
+
+Endpoint:
+
+```text
+DELETE /repos/{owner}/{repo}
+```
+
+Implemented through:
+
+```text
+deleteRepository(owner, repository)
+```
+
+The DELETE test was executed against the disposable repository:
+
+```text
+Govindrao1/Github_Delete_Test
+```
+
+The test validated the complete lifecycle:
+
+```text
+GET dummy repository       → 200
+DELETE dummy repository    → 204
+GET after deletion         → 404
+```
+
+The DELETE test is intentionally destructive. It must only be executed against a disposable repository that is safe to remove. The previously used dummy repository has already been deleted, so a new disposable repository must be created and granted to the GitHub App before repeating the test.
+
+### CREATE Repository
+
+Repository CREATE is intentionally not implemented in the current API layer.
+
+The current project authenticates with a GitHub App **installation access token**. An earlier attempt to use:
+
+```text
+POST /user/repos
+```
+
+returned:
+
+```text
+403 Resource not accessible by integration
+```
+
+The project therefore does not expose `createRepository()` under the current authentication model.
+
+This is a limitation of the current authentication context used by this project, not a statement that GitHub repository creation is universally unavailable to GitHub Apps.
+
+## Current API Architecture
+
+```text
+Test
+ │
+ ▼
+RepositoryApi
+ │
+ ▼
+GitHubApiClient
+ │
+ ├── GET
+ ├── POST
+ ├── PATCH
+ └── DELETE
+ │
+ ▼
+GitHubAppAuth
+ │
+ ├── JWT generation
+ ├── Installation token generation
+ └── Token caching
+ │
+ ▼
 GitHub REST API
 ```
 
-Authentication implementation:
+## Environment Configuration
+
+`.env` contains local runtime configuration and secrets and must never be committed.
+
+`.env.example` documents the required variable names without containing real credentials or keys.
+
+Typical configuration includes:
 
 ```text
-api/auth/githubAppAuth.ts
+GITHUB_BASE_URL
+GITHUB_API_BASE_URL
+GITHUB_USERNAME
+GITHUB_PASSWORD
+GITHUB_APP_CLIENT_ID
+GITHUB_INSTALLATION_ID
+GITHUB_APP_PRIVATE_KEY_PATH
 ```
 
----
+The exact values remain local to the developer environment.
 
-## JWT Generation
+## Secret Management
 
-The framework generates a short-lived JWT using the GitHub App private key.
+Sensitive information must remain outside source-controlled code.
 
-The JWT uses:
+The project follows these rules:
 
-- RS256 signing algorithm
-- GitHub App Client ID as issuer
-- Issued-at timestamp
-- Short expiration time
+- Do not hard-code passwords, tokens, or private keys.
+- Keep `.env` out of Git.
+- Keep GitHub App private keys under `secrets/` and exclude them from Git.
+- Commit only `.env.example` with variable names and safe example structure.
+- Never print secret values in test output.
 
-The private key is loaded from the path configured in `.env`.
+## TypeScript Validation
 
----
+Run:
 
-## Installation Access Token
-
-The generated GitHub App JWT is used to request an installation access token.
-
-The installation ID is configured through:
-
-```env
-GITHUB_INSTALLATION_ID=...
+```powershell
+npx tsc --noEmit
 ```
 
-The installation token is then used for GitHub REST API requests.
+The current project compiles successfully with strict TypeScript checking.
 
-The token is associated with the GitHub App installation and its configured repository/permission scope.
+## Running Tests
 
----
-
-# Installation Token Caching
-
-The framework caches the GitHub App installation access token instead of generating a new token for every API request.
-
-Current flow:
-
-```text
-API Request
-     │
-     ▼
-Is cached installation token valid?
-     │
-     ├── Yes ──► Reuse token
-     │
-     └── No
-          │
-          ▼
-      Generate App JWT
-          │
-          ▼
-      Generate installation token
-          │
-          ▼
-      Cache token + expiry
-          │
-          ▼
-      Use token
-```
-
-A safety buffer is used before token expiry so that a token close to expiration is not reused for a new API request.
-
-This reduces unnecessary authentication calls and keeps API requests efficient.
-
----
-
-# API Health Check
-
-The current API smoke test is:
-
-```text
-tests/api/api_health.spec.ts
-```
-
-It validates that:
-
-1. The GitHub App authentication flow works.
-2. An installation access token can be generated.
-3. The installation token can authenticate against GitHub.
-4. The configured repository is accessible.
-5. GitHub returns HTTP `200`.
-
-The current repository used for the health check is:
-
-```text
-Govindrao1/Github_UI_And_API_Project
-```
-
-Current successful result:
-
-```text
-✅ GitHub API authentication is working.
-Repository: Govindrao1/Github_UI_And_API_Project
-
-1 passed
-```
-
----
-
-# Environment Configuration
-
-The project uses `.env` for local configuration.
-
-Example:
-
-```env
-# GitHub UI
-
-GITHUB_BASE_URL=https://github.com
-
-GITHUB_USERNAME=YOUR_GITHUB_USERNAME
-GITHUB_PASSWORD=YOUR_GITHUB_PASSWORD
-
-
-# GitHub API
-
-GITHUB_API_BASE_URL=https://api.github.com
-
-
-# GitHub App Authentication
-
-GITHUB_APP_ID=YOUR_APP_ID
-GITHUB_APP_CLIENT_ID=YOUR_CLIENT_ID
-GITHUB_INSTALLATION_ID=YOUR_INSTALLATION_ID
-GITHUB_APP_PRIVATE_KEY_PATH=./secrets/YOUR_PRIVATE_KEY_FILE.pem
-```
-
-The actual `.env` file must never be committed.
-
-The project provides:
-
-```text
-.env.example
-```
-
-as the safe configuration template.
-
----
-
-# Secret Management
-
-Sensitive files are excluded from Git.
-
-Current `.gitignore` protection includes:
-
-```gitignore
-.env
-secrets/
-*.pem
-node_modules/
-playwright-report/
-test-results/
-blob-report/
-```
-
-The GitHub App private key must remain inside the local `secrets/` directory and must never be committed to the repository.
-
----
-
-# Playwright Configuration
-
-The framework currently runs against:
-
-```text
-Chromium
-Firefox
-WebKit
-```
-
-Configured in:
-
-```text
-playwright.config.ts
-```
-
-The configuration includes:
-
-- Test directory
-- HTML reporter
-- Base URL
-- Trace on first retry
-- Screenshot on failure
-- Video on failure
-
----
-
-# Fixtures
-
-Shared Playwright fixtures are located at:
-
-```text
-fixtures/basefixture.ts
-```
-
-Current custom fixtures:
-
-```text
-loginPage
-githubApiClient
-```
-
-This allows tests to directly consume the required page objects and API client.
-
-Example:
-
-```typescript
-test('GitHub API health check', async ({
-    githubApiClient
-}) => {
-    // API test
-});
-```
-
----
-
-# Running Tests
-
-## UI Login Test
-
-Chromium:
+### UI Login — Chromium
 
 ```powershell
 npx playwright test tests/UI_login.spec.ts --project=chromium
 ```
 
-Headed mode:
-
-```powershell
-npx playwright test tests/UI_login.spec.ts --project=chromium --headed
-```
-
-Debug mode:
+### UI Login — Debug
 
 ```powershell
 npx playwright test tests/UI_login.spec.ts --project=chromium --debug
 ```
 
----
-
-## API Health Test
+### API Health
 
 ```powershell
 npx playwright test tests/api/api_health.spec.ts --project=chromium
 ```
 
----
-
-## Run All Tests
+### Repository GET
 
 ```powershell
-npx playwright test
+npx playwright test tests/api/repositories/get_repository.spec.ts --project=chromium
 ```
 
----
+### Repository UPDATE
 
-## Open HTML Report
+```powershell
+npx playwright test tests/api/repositories/update_repository.spec.ts --project=chromium
+```
+
+### Repository DELETE
+
+```powershell
+npx playwright test tests/api/repositories/delete_repository.spec.ts --project=chromium
+```
+
+Only run the DELETE test when the configured repository is a disposable repository that may safely be deleted.
+
+### View HTML Report
 
 ```powershell
 npx playwright show-report
 ```
 
----
+## Git Workflow
 
-# Git Workflow
-
-The project is currently initialized as a local Git repository.
-
-Current branch:
+The current branch is:
 
 ```text
 master
 ```
 
-Current commits:
+Remote repository:
 
 ```text
-5669401  Cache GitHub App installation token
-02bf496  Initial Playwright GitHub automation framework
+https://github.com/Govindrao1/Github_UI_And_API_Project.git
 ```
 
-The working tree was clean after the latest commit.
+Recommended workflow:
 
-The repository has **not yet been pushed to a remote GitHub repository**.
-
----
-
-# Development Roadmap
-
-The next stages will be implemented incrementally.
-
-```text
-GitHub App Authentication                 ✅
-        │
-        ▼
-API Client                                ✅
-        │
-        ▼
-API Health Check                          ✅
-        │
-        ▼
-Repository API                            ← Next
-        │
-        ├── Get Repository
-        ├── Create Repository
-        ├── Update Repository
-        └── Delete Repository
-        │
-        ▼
-Issues API
-        │
-        ▼
-Pull Requests API
-        │
-        ▼
-Branches API
-        │
-        ▼
-Commits API
-        │
-        ▼
-Actions API
-        │
-        ▼
-Hybrid UI + API Workflows
-        │
-        ▼
-CI/CD
+```powershell
+git status
+git diff
+git add <files>
+git commit -m "<message>"
+git push origin master
 ```
 
----
+Before committing, verify that secrets and generated artifacts are not staged.
 
-# Automation Strategy
+## Documentation Synchronization Rule
 
-The framework will use the appropriate automation layer for each scenario.
+`design.md` is the source of truth for architecture and design changes.
 
-### UI Automation
+`README.MD` is the project-level implementation and usage documentation.
 
-Used for:
+Whenever the project architecture, API layer, authentication strategy, test structure, or major project-level behavior changes, both files must be updated so they remain synchronized with the actual implementation.
 
-- User-facing workflows
-- Browser behavior
-- UI validations
-- Authentication flows
-- Visual/user interaction scenarios
+## Current Architecture Principles
 
-### API Automation
+- Keep UI page objects separate from API resources.
+- Keep API authentication separate from HTTP transport.
+- Keep API resource methods separate from test cases.
+- Reuse Playwright fixtures for shared dependencies.
+- Keep credentials and private keys outside source code.
+- Prefer reusable API client methods over direct HTTP calls from tests.
+- Use disposable resources for destructive API automation.
+- Keep tests responsible for validation while API classes handle API operations.
 
-Used for:
+## Roadmap
 
-- Backend behavior
-- CRUD operations
-- Data setup and cleanup
-- Permission validation
-- API response validation
-- Larger test-data operations
+The current foundation is in place for expanding repository API coverage and adding additional GitHub UI and API scenarios without coupling tests directly to authentication or transport implementation.
 
-### Hybrid Automation
+Potential future work should be added only when required and should be reflected in both `README.MD` and `design.md`.
 
-Used when an API and UI workflow are more efficient together.
+## Documentation References
 
-Typical pattern:
-
-```text
-API
- │
- ├── Create test data
- │
- ▼
-UI
- │
- ├── Validate user-facing behavior
- │
- ▼
-API
- │
- └── Verify backend state
-```
-
----
-
-# Current Project Baseline
-
-At this stage the framework has a working foundation for both UI and API automation.
-
-The most important completed milestone is:
-
-```text
-GitHub App authentication
-        +
-Installation token caching
-        +
-Reusable API client
-        +
-API health validation
-```
-
-The next implementation milestone is the **Repository API layer**.
+- `README.MD` — project overview, setup, usage, and current implementation status
+- `design.md` — detailed architecture and design source of truth
