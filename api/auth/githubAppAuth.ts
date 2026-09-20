@@ -13,7 +13,7 @@ export class GitHubAppAuth {
     private readonly installationId: string;
     private readonly privateKeyPath: string;
 
-    private installationToken?: string;
+    private installationToken: string | undefined;
     private installationTokenExpiresAt = 0;
 
     constructor(request: APIRequestContext) {
@@ -92,12 +92,12 @@ export class GitHubAppAuth {
          * Five-minute safety buffer is used so that a token
          * close to expiry is not reused for a new API request.
          */
-        const tokenIsValid =
-            this.installationToken &&
+        if (
+            this.installationToken !== undefined &&
             currentTime <
-                this.installationTokenExpiresAt - 5 * 60 * 1000;
-
-        if (tokenIsValid) {
+                this.installationTokenExpiresAt -
+                    5 * 60 * 1000
+        ) {
             return this.installationToken;
         }
 
