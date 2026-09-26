@@ -16,7 +16,7 @@ The framework currently supports:
 - UI versus API repository detail consistency validation
 - GitHub App authentication using JWT and installation access tokens
 - Installation-token caching and reuse during the test run
-- JSON Schema response validation using AJV
+- JSON Schema request and response contract validation using AJV
 
 The project is designed so that UI and API automation share the same Playwright test infrastructure while keeping page objects, fixtures, API clients, authentication, API resource classes, and test validation separated.
 
@@ -35,7 +35,7 @@ The project is designed so that UI and API automation share the same Playwright 
 | GitHub App JWT authentication | ✅ Implemented |
 | Installation token caching | ✅ Implemented |
 | TypeScript validation | ✅ Passing |
-| JSON Schema + AJV response validation | ✅ Implemented for Repository GET, UPDATE, and UI CREATE → API GET |
+| JSON Schema + AJV contract validation | ✅ Implemented for Repository GET/UPDATE responses, UI CREATE → API GET, 404 error response, valid UPDATE request payload, and invalid UPDATE request payload |
 | Repository CREATE through current API layer | ⚠️ Not supported with current installation-token authentication model |
 
 ## Technology Stack
@@ -76,7 +76,9 @@ GitHub/
 │   │   ├── api_health.spec.ts
 │   │   └── repositories/
 │   │       ├── get_repository.spec.ts
+│   │       ├── get_nonexistent_repository.spec.ts
 │   │       ├── update_repository.spec.ts
+│   │       ├── update_invalid_request.spec.ts
 │   │       └── delete_repository.spec.ts
 │   └── e2e/
 │       └── repositories/
@@ -84,7 +86,9 @@ GitHub/
 ├── utils/
 │   └── schemaValidator.ts
 ├── schemas/
-│   └── repository.schema.json
+│   ├── repository.schema.json
+│   ├── github-error.schema.json
+│   └── update-repository-request.schema.json
 ├── secrets/
 ├── .env
 ├── .env.example
@@ -203,7 +207,7 @@ The reusable validator is:
 utils/schemaValidator.ts
 ```
 
-Current schema validation coverage:
+Current response-schema validation coverage:
 
 ```text
 Repository GET response                    → AJV ✅
@@ -216,6 +220,90 @@ Schema validation is separate from business assertions. AJV validates the respon
 The repository schema intentionally allows additional response properties so that newly introduced GitHub response fields do not cause unnecessary test failures.
 
 DELETE responses are not validated with the repository schema because a successful DELETE returns no repository object to validate.
+
+## API Request-Payload Schema Validation
+
+The framework also validates applicable API request payloads with JSON Schema and AJV before sending them to GitHub.
+
+The current UPDATE request contract is stored at:
+
+```text
+schemas/update-repository-request.schema.json
+```
+
+The UPDATE test validates the exact payload that will be sent to the API before calling the PATCH operation:
+
+```text
+Build update payload
+        ↓
+AJV request-schema validation
+        ↓
+PATCH /repos/{owner}/{repo}
+        ↓
+AJV response-schema validation
+        ↓
+Business assertions
+```
+
+This keeps request-contract failures separate from response-contract failures. The UPDATE request schema currently requires a string `description` and rejects unexpected request properties.
+
+The negative UPDATE request test is located at:
+
+```text
+tests/api/repositories/update_invalid_request.spec.ts
+```
+
+It deliberately supplies an invalid request payload and verifies that AJV rejects the payload before the PATCH operation is invoked:
+
+```text
+Invalid update payload
+        ↓
+AJV request-schema validation
+        ↓
+Validation fails
+        ↓
+PATCH is not executed
+```
+
+This keeps negative contract validation isolated and avoids making a destructive or invalid external API call merely to prove that the request contract is enforced.
+
+## Negative API Response Validation
+
+The framework also validates expected error responses using JSON Schema and AJV.
+
+### Non-existent Repository
+
+The test:
+
+```text
+tests/api/repositories/get_nonexistent_repository.spec.ts
+```
+
+executes a GET request for a deliberately non-existent repository and validates:
+
+```text
+GET /repos/{owner}/{non-existent-repository}
+        ↓
+HTTP 404
+        ↓
+Read JSON error response
+        ↓
+AJV validation
+        ↓
+github-error.schema.json
+        ↓
+Error business assertions
+```
+
+The error response contract is stored at:
+
+```text
+schemas/github-error.schema.json
+```
+
+The test validates the expected `404` HTTP status, then validates the returned JSON structure with AJV and checks the expected error details.
+
+This negative scenario is non-destructive and does not modify any repository.
 
 ## Playwright Configuration
 
@@ -374,15 +462,29 @@ Implemented through:
 deleteRepository(owner, repository)
 ```
 
-The DELETE test uses a disposable repository and validates the complete lifecycle:
+The DELETE test is self-contained and creates a unique disposable repository through the GitHub UI before exercising the destructive API operation. This avoids depending on a pre-existing repository that may already have been deleted by an earlier test run.
+
+The complete lifecycle is:
 
 ```text
-GET dummy repository       → 200
-DELETE dummy repository    → 204
-GET after deletion         → 404
+Login through UI
+        ↓
+Create unique disposable repository through UI
+        ↓
+Poll API GET until repository is available → 200
+        ↓
+DELETE repository through API → 204
+        ↓
+GET repository after deletion → 404
 ```
 
-The DELETE test is intentionally destructive. It must only be executed against a disposable repository that may safely be deleted. The previously used dummy repository has already been deleted, so a new disposable repository must be created and granted to the GitHub App before repeating the test.
+The test is located at:
+
+```text
+tests/api/repositories/delete_repository.spec.ts
+```
+
+The DELETE operation remains intentionally destructive and must never target the main project repository. The repository name is generated uniquely for each test execution so parallel browser projects do not depend on shared disposable test data.
 
 ### CREATE Repository
 
@@ -531,18 +633,42 @@ npx playwright test tests/api/repositories/get_repository.spec.ts --project=chro
 npx playwright test tests/api/repositories/update_repository.spec.ts --project=chromium
 ```
 
+### Invalid UPDATE Request — Request Schema
+
+```powershell
+npx playwright test tests/api/repositories/update_invalid_request.spec.ts --project=chromium
+```
+
+### Non-existent Repository — 404 Error Schema
+
+```powershell
+npx playwright test tests/api/repositories/get_nonexistent_repository.spec.ts --project=chromium
+```
+
 ### Repository DELETE
 
 ```powershell
 npx playwright test tests/api/repositories/delete_repository.spec.ts --project=chromium
 ```
 
-Only run the DELETE test when the configured repository is a disposable repository that may safely be deleted.
+The DELETE test creates its own unique disposable repository during the test and must never target the main project repository.
 
 ### UI CREATE + API Validation
 
 ```powershell
 npx playwright test tests/e2e/repositories/ui_create_repository.spec.ts --project=chromium
+```
+
+### Full Project Regression
+
+```powershell
+npx playwright test
+```
+
+### Run with Visible Browser
+
+```powershell
+npx playwright test --headed
 ```
 
 ### View HTML Report
@@ -611,7 +737,7 @@ The current foundation is in place for expanding repository API coverage and add
 
 Potential future work should be added only when required, for example:
 
-- Negative JSON Schema validation scenarios and richer AJV failure diagnostics
+- Additional negative request-schema validation scenarios and richer AJV failure diagnostics
 - Additional repository UI/API scenarios
 - Additional GitHub API resources
 

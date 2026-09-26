@@ -23,7 +23,7 @@ UI CREATE → API Validation
 UI vs API Repository Validation
 GitHub App JWT authentication
 Installation access-token caching
-JSON Schema + AJV response validation
+JSON Schema + AJV request/response contract validation
 Shared Playwright fixtures
 ```
 
@@ -87,7 +87,9 @@ GitHub/
 │   │   ├── api_health.spec.ts
 │   │   └── repositories/
 │   │       ├── get_repository.spec.ts
+│   │       ├── get_nonexistent_repository.spec.ts
 │   │       ├── update_repository.spec.ts
+│   │       ├── update_invalid_request.spec.ts
 │   │       └── delete_repository.spec.ts
 │   └── e2e/
 │       └── repositories/
@@ -95,7 +97,9 @@ GitHub/
 ├── utils/
 │   └── schemaValidator.ts
 ├── schemas/
-│   └── repository.schema.json
+│   ├── repository.schema.json
+│   ├── github-error.schema.json
+│   └── update-repository-request.schema.json
 ├── secrets/
 ├── .env
 ├── .env.example
@@ -231,12 +235,6 @@ tests/e2e/repositories/ui_create_repository.spec.ts
 The architecture is:
 
 ```text
-1. Login through UI
-        ↓
-2. Create repository through UI
-        ↓
-3. Read actual owner from UI
-        ↓
 1. Login through UI
         ↓
 2. Create repository through UI
@@ -518,23 +516,33 @@ GitHubApiClient.delete()
 GitHub REST API
 ```
 
-The DELETE test uses a disposable repository and follows this lifecycle:
+The DELETE test is intentionally self-contained. It creates a unique disposable repository through the UI and then uses the API to exercise and verify the destructive operation.
+
+The current lifecycle is:
 
 ```text
-1. GET repository
+1. Login through UI
    ↓
-2. Verify repository exists
+2. Create unique disposable repository through UI
    ↓
-3. DELETE repository
+3. Poll GET /repos/{owner}/{repo} until HTTP 200
    ↓
-4. Verify status 204
+4. DELETE /repos/{owner}/{repo}
    ↓
-5. GET repository again
+5. Verify DELETE returns HTTP 204
    ↓
-6. Verify status 404
+6. GET /repos/{owner}/{repo} again
+   ↓
+7. Verify HTTP 404
 ```
 
-The previously used disposable repository was deleted successfully and must not be assumed to exist for future test runs.
+The test is located at:
+
+```text
+tests/api/repositories/delete_repository.spec.ts
+```
+
+Creating the disposable resource inside the test removes the dependency on a pre-existing repository and makes the destructive test data lifecycle explicit. The unique repository name also prevents parallel Chromium, Firefox, and WebKit executions from targeting the same resource.
 
 ### DELETE Safety Rule
 
@@ -544,7 +552,7 @@ The DELETE test must never target the main project repository:
 Govindrao1/Github_UI_And_API_Project
 ```
 
-A new disposable repository must be created and explicitly granted to the GitHub App installation before repeating destructive DELETE validation.
+The main project repository remains untouched. The DELETE test owns only the disposable repository that it creates for that execution.
 
 ## 17. Repository CREATE Limitation
 
@@ -636,6 +644,58 @@ secrets/*                → local only
 
 No test or utility should print secret values.
 
+## 21. Negative API Response Validation
+
+The framework validates expected API error responses separately from successful repository-object responses.
+
+### 21.1 Non-existent Repository Scenario
+
+The negative repository GET test is:
+
+```text
+tests/api/repositories/get_nonexistent_repository.spec.ts
+```
+
+The scenario is intentionally non-destructive:
+
+```text
+GET /repos/{owner}/{non-existent-repository}
+        ↓
+HTTP 404
+        ↓
+Read JSON error response
+        ↓
+Validate github-error.schema.json with AJV
+        ↓
+Validate expected error details
+```
+
+The error response schema is stored at:
+
+```text
+schemas/github-error.schema.json
+```
+
+The schema validates the common error contract while allowing additional fields returned by GitHub. The HTTP status code remains a separate assertion because it is part of the transport-level response, while the JSON schema validates the response body.
+
+### 21.2 Negative Contract vs Business Validation
+
+```text
+HTTP Response
+     │
+     ├── HTTP assertion
+     │      → expected status 404
+     │
+     ├── AJV / JSON Schema
+     │      → error response structure and field types
+     │
+     └── Test assertions
+            → message is "Not Found"
+            → body status represents 404
+```
+
+This keeps transport validation, response-contract validation, and scenario-specific assertions separate.
+
 ## 21. Playwright Configuration Design
 
 `playwright.config.ts` currently defines:
@@ -716,23 +776,41 @@ This separation keeps the framework maintainable as UI and API coverage grows.
 
 ## 24. Destructive Test Strategy
 
-Destructive APIs require a disposable resource.
+Destructive APIs require a disposable resource whose lifecycle is controlled by the test.
 
-The DELETE strategy is:
+The current DELETE strategy is:
 
 ```text
-Create disposable repository
+UI Login
         ↓
-Grant GitHub App installation access
+Create unique disposable repository through UI
         ↓
-Run DELETE validation
+Verify repository availability through API
         ↓
-Repository removed
+Run DELETE validation through API
+        ↓
+Verify repository returns 404
 ```
 
-The main automation repository must never be used as the DELETE target.
+This strategy avoids depending on a fixed, pre-existing disposable repository and makes the test data ownership explicit. The main automation repository must never be used as the DELETE target.
 
-## 25. Git Strategy
+## 25. Validation and Execution Baseline
+
+The current full-project regression command is:
+
+```powershell
+npx playwright test
+```
+
+The project supports Chromium, Firefox, and WebKit execution. For visual debugging, tests can be run in headed mode:
+
+```powershell
+npx playwright test --headed
+```
+
+The current full-project regression checkpoint has passed all 24 tests across the configured browser projects. This count is a current execution baseline and will change as coverage evolves.
+
+## 26. Git Strategy
 
 The project uses:
 
@@ -753,7 +831,7 @@ git push
 
 Before pushing, verify that sensitive files are not staged.
 
-## 26. Documentation Synchronization
+## 27. Documentation Synchronization
 
 `design.md` is the architectural source of truth.
 
@@ -772,7 +850,7 @@ Whenever there is a project-level change such as:
 
 both `design.md` and `README.MD` must be updated in the same development cycle.
 
-## 27. Current Validation Baseline
+## 28. Current Validation Baseline
 
 The completed validation baseline is:
 
@@ -818,16 +896,20 @@ UI Repository CREATE            ✅
 Repository GET                  ✅
 Repository UPDATE               ✅
 Repository DELETE               ✅
-AJV Repository GET validation   ✅
-AJV Repository UPDATE validation ✅
-AJV UI CREATE → API GET validation ✅
-UI CREATE → API Validation      ✅
+AJV Repository GET validation              ✅
+AJV Repository UPDATE validation           ✅
+AJV UI CREATE → API GET validation         ✅
+AJV Repository UPDATE request validation   ✅
+AJV Invalid UPDATE request validation      ✅
+AJV 404 error response validation         ✅
+DELETE disposable-resource lifecycle      ✅
+UI CREATE → API Validation                 ✅
 UI vs API Detail Comparison     ✅
 ```
 
 Repository CREATE through the current API layer remains intentionally unsupported.
 
-## 28. Next Change Rule
+## 29. Next Change Rule
 
 Before introducing the next project-level feature, verify the current working tree and review the impact on:
 
@@ -843,11 +925,11 @@ design.md
 
 No architectural change should be introduced without keeping the implementation and documentation synchronized.
 
-## 29. API Response Schema Validation Design
+## 30. API Response Schema Validation Design
 
 The framework uses JSON Schema with AJV as a reusable API response-contract validation layer.
 
-### 29.1 Schema Location
+### 30.1 Schema Location
 
 The current repository response contract is stored at:
 
@@ -857,7 +939,7 @@ schemas/repository.schema.json
 
 The schema defines required repository fields and their expected JSON data types, including the nested owner object. The schema allows additional response properties so that new GitHub fields do not create unnecessary failures in existing automation.
 
-### 29.2 Reusable Validator
+### 30.2 Reusable Validator
 
 The validation utility is:
 
@@ -880,7 +962,7 @@ FAIL → throw detailed validation error
 
 The utility is intentionally kept outside the API client and repository resource layers. It is a test-support capability used after an API response has been received.
 
-### 29.3 Current Schema Validation Coverage
+### 30.3 Current Repository Response Schema Coverage
 
 ```text
 Repository GET response
@@ -902,9 +984,9 @@ repository.schema.json
 AJV validation ✅
 ```
 
-The DELETE response is not passed through the repository schema because a successful DELETE does not return a repository object.
+The DELETE response is not passed through the repository schema because a successful DELETE does not return a repository object. Error responses use the dedicated GitHub error schema described separately below.
 
-### 29.4 Contract Validation vs Business Validation
+### 30.4 Contract Validation vs Business Validation
 
 The framework keeps these responsibilities separate:
 
@@ -923,11 +1005,11 @@ API Response
 
 This allows the same response contract to be reused across multiple tests while keeping scenario-specific expectations inside the tests.
 
-### 29.5 Failure Behavior
+### 30.5 Failure Behavior
 
 When validation fails, `schemaValidator.ts` throws an error containing the schema-validation messages returned by AJV. A successful validation logs the schema name and a concise pass message.
 
-### 29.6 Extension Strategy
+### 30.6 Extension Strategy
 
 Future schema work should extend the contract layer only when a new API response requires it. Examples include:
 
@@ -940,3 +1022,140 @@ Shared schema-loading conventions
 
 The existing repository schema should be reused whenever the response contract is the same.
 
+## 31. API Request-Payload Schema Validation Design
+
+The framework validates applicable API request payloads with JSON Schema and AJV before the request is sent.
+
+### 31.1 UPDATE Request Schema
+
+The current UPDATE request contract is stored at:
+
+```text
+schemas/update-repository-request.schema.json
+```
+
+The schema currently requires:
+
+```text
+description → string
+```
+
+Unexpected request properties are rejected by the schema.
+
+### 31.2 UPDATE Validation Flow
+
+The UPDATE test follows this sequence:
+
+```text
+Read original repository state
+        ↓
+Build update payload
+        ↓
+AJV request-schema validation
+        ↓
+PATCH /repos/{owner}/{repo}
+        ↓
+HTTP 200
+        ↓
+AJV response-schema validation
+        ↓
+Business assertions
+        ↓
+Restore original description
+```
+
+The same `updatePayload` object that is schema-validated is passed to `RepositoryApi.updateRepository()`. This ensures the test validates the exact request body that it sends.
+
+### 31.3 Contract Validation Responsibilities
+
+Request validation protects the outbound contract:
+
+```text
+Request schema
+    → required fields
+    → JSON data types
+    → allowed properties
+```
+
+Response validation protects the inbound contract:
+
+```text
+Response schema
+    → required fields
+    → JSON data types
+    → enum constraints
+```
+
+Business assertions remain in the test layer and verify scenario-specific values.
+
+### 31.4 Current Contract Validation Coverage
+
+```text
+UPDATE request payload              → AJV ✅
+GET repository response             → AJV ✅
+UPDATE repository response          → AJV ✅
+UI CREATE → API GET response        → AJV ✅
+404 error response                  → AJV ✅
+```
+
+The framework should reuse an existing schema when the request or response contract is the same rather than duplicating schemas.
+
+### 31.5 Negative UPDATE Request Validation
+
+The negative UPDATE request test is located at:
+
+```text
+tests/api/repositories/update_invalid_request.spec.ts
+```
+
+The test intentionally builds an invalid payload, for example a numeric `description`, and validates it against the existing UPDATE request schema:
+
+```text
+Invalid update payload
+        ↓
+AJV request-schema validation
+        ↓
+Expected validation failure
+        ↓
+No PATCH request is invoked
+```
+
+This test validates the framework's request-contract guard without making an invalid external API call. It also confirms that request validation remains a prerequisite to the API operation.
+
+## 32. Negative API Error Response Schema Design
+
+The framework validates expected GitHub API error responses with a dedicated JSON Schema and the same reusable AJV validator.
+
+### 32.1 Error Schema
+
+The current error response contract is stored at:
+
+```text
+schemas/github-error.schema.json
+```
+
+The schema defines the required `message` field and supports documented error response properties such as `documentation_url` and `status`. Additional properties are allowed so that the contract remains tolerant of other GitHub error fields.
+
+### 32.2 Non-existent Repository Flow
+
+The negative test is located at:
+
+```text
+tests/api/repositories/get_nonexistent_repository.spec.ts
+```
+
+The flow is:
+
+```text
+GET deliberately non-existent repository
+        ↓
+HTTP 404
+        ↓
+Read JSON error response
+        ↓
+AJV validation using github-error.schema.json
+        ↓
+Validate expected error details
+```
+
+This test is non-destructive because it does not create, update, or delete a repository.
