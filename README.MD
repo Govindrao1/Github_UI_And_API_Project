@@ -16,6 +16,7 @@ The framework currently supports:
 - UI versus API repository detail consistency validation
 - GitHub App authentication using JWT and installation access tokens
 - Installation-token caching and reuse during the test run
+- JSON Schema response validation using AJV
 
 The project is designed so that UI and API automation share the same Playwright test infrastructure while keeping page objects, fixtures, API clients, authentication, API resource classes, and test validation separated.
 
@@ -34,6 +35,7 @@ The project is designed so that UI and API automation share the same Playwright 
 | GitHub App JWT authentication | ✅ Implemented |
 | Installation token caching | ✅ Implemented |
 | TypeScript validation | ✅ Passing |
+| JSON Schema + AJV response validation | ✅ Implemented for Repository GET, UPDATE, and UI CREATE → API GET |
 | Repository CREATE through current API layer | ⚠️ Not supported with current installation-token authentication model |
 
 ## Technology Stack
@@ -43,6 +45,8 @@ The project is designed so that UI and API automation share the same Playwright 
 - Node.js
 - dotenv
 - jsonwebtoken
+- AJV
+- JSON Schema
 - GitHub REST API
 - GitHub App authentication
 
@@ -78,6 +82,9 @@ GitHub/
 │       └── repositories/
 │           └── ui_create_repository.spec.ts
 ├── utils/
+│   └── schemaValidator.ts
+├── schemas/
+│   └── repository.schema.json
 ├── secrets/
 ├── .env
 ├── .env.example
@@ -148,6 +155,8 @@ Read repository owner from UI
         ↓
 Wait for repository to become available through API
         ↓
+Validate API response against JSON Schema with AJV
+        ↓
 Validate API repository details
         ↓
 Open the created repository through UI
@@ -175,6 +184,38 @@ Visibility
 The API visibility value is normalized from the `private` boolean before comparison with the UI value.
 
 The API GET is used as the synchronization point after the UI create action. The test polls until the repository becomes available instead of using a fixed sleep.
+
+After the repository becomes available, the API response is validated against `schemas/repository.schema.json` using the reusable `utils/schemaValidator.ts` AJV utility. The same repository schema is reused for applicable repository-object responses instead of duplicating response contracts.
+
+## API Response Schema Validation
+
+The framework uses JSON Schema and AJV to validate the structure and data types of repository API responses.
+
+The current schema is:
+
+```text
+schemas/repository.schema.json
+```
+
+The reusable validator is:
+
+```text
+utils/schemaValidator.ts
+```
+
+Current schema validation coverage:
+
+```text
+Repository GET response                    → AJV ✅
+Repository UPDATE response                 → AJV ✅
+UI CREATE → API GET repository response    → AJV ✅
+```
+
+Schema validation is separate from business assertions. AJV validates the response contract, while the test validates scenario-specific values such as repository name, owner, description, and visibility.
+
+The repository schema intentionally allows additional response properties so that newly introduced GitHub response fields do not cause unnecessary test failures.
+
+DELETE responses are not validated with the repository schema because a successful DELETE returns no repository object to validate.
 
 ## Playwright Configuration
 
@@ -293,7 +334,7 @@ Implemented through:
 getRepository(owner, repository)
 ```
 
-The GET test validates repository identity, owner, full name, and visibility.
+The GET test validates the response against the repository JSON Schema with AJV and then validates repository identity, owner, full name, and visibility.
 
 ### UPDATE Repository
 
@@ -313,8 +354,9 @@ The UPDATE test:
 
 1. Reads the original description.
 2. Updates the description.
-3. Validates the response and returned repository details.
-4. Restores the original description in a `finally` block when the update succeeds.
+3. Validates the returned repository object against the repository JSON Schema with AJV.
+4. Validates the response and returned repository details.
+5. Restores the original description in a `finally` block when the update succeeds.
 
 This prevents the main repository from being permanently modified by the automation test.
 
@@ -569,7 +611,7 @@ The current foundation is in place for expanding repository API coverage and add
 
 Potential future work should be added only when required, for example:
 
-- JSON Schema validation with AJV for API response contracts
+- Negative JSON Schema validation scenarios and richer AJV failure diagnostics
 - Additional repository UI/API scenarios
 - Additional GitHub API resources
 

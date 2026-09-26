@@ -6,6 +6,9 @@ import {
 
 import { RepositoryApi } from '../../../api/repositories/repositoryApi';
 
+import repositorySchema from '../../../schemas/repository.schema.json';
+import { validateSchema } from '../../../utils/schemaValidator';
+
 test(
     'Create GitHub repository through UI and validate through API',
     async ({
@@ -111,57 +114,46 @@ test(
                     'Status Code      :',
                     response.status()
                 );
-
                 console.log(
                     'Repository Name  :',
                     apiRepositoryDetails.name
                 );
-
                 console.log(
                     'Full Name        :',
                     apiRepositoryDetails.full_name
                 );
-
                 console.log(
                     'Owner            :',
                     apiRepositoryDetails.owner.login
                 );
-
                 console.log(
                     'Description      :',
                     apiRepositoryDetails.description
                 );
-
                 console.log(
                     'Visibility       :',
                     apiRepositoryDetails.visibility
                 );
-
                 console.log(
                     'Private          :',
                     apiRepositoryDetails.private
                 );
-
                 console.log(
                     'HTML URL         :',
                     apiRepositoryDetails.html_url
                 );
-
                 console.log(
                     'Default Branch   :',
                     apiRepositoryDetails.default_branch
                 );
-
                 console.log(
                     'Repository ID    :',
                     apiRepositoryDetails.id
                 );
-
                 console.log(
                     'Created At       :',
                     apiRepositoryDetails.created_at
                 );
-
                 console.log(
                     'Updated At       :',
                     apiRepositoryDetails.updated_at
@@ -169,6 +161,17 @@ test(
 
                 console.log(
                     '====================================================\n'
+                );
+
+                await test.step(
+                    'Validate repository response schema',
+                    async () => {
+                        validateSchema(
+                            repositorySchema,
+                            apiRepositoryDetails,
+                            'GitHub Repository Response'
+                        );
+                    }
                 );
 
                 expect(
@@ -230,17 +233,14 @@ test(
                     'Repository Name :',
                     uiDetails.name
                 );
-
                 console.log(
                     'Owner           :',
                     uiDetails.owner
                 );
-
                 console.log(
                     'Description     :',
                     uiDetails.description
                 );
-
                 console.log(
                     'Visibility      :',
                     uiDetails.visibility

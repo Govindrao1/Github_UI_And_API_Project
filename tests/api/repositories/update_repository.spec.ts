@@ -1,25 +1,32 @@
 import { test, expect } from '../../../fixtures/basefixture';
 import { RepositoryApi } from '../../../api/repositories/repositoryApi';
 
+import repositorySchema from '../../../schemas/repository.schema.json';
+import { validateSchema } from '../../../utils/schemaValidator';
+
 test('Update GitHub repository description', async ({
     githubApiClient,
 }) => {
-    const repositoryApi = new RepositoryApi(githubApiClient);
+    const repositoryApi =
+        new RepositoryApi(githubApiClient);
 
     const owner = 'Govindrao1';
-    const repository = 'Github_UI_And_API_Project';
+    const repository =
+        'Github_UI_And_API_Project';
 
-    const getResponse = await repositoryApi.getRepository(
-        owner,
-        repository
-    );
+    const getResponse =
+        await repositoryApi.getRepository(
+            owner,
+            repository
+        );
 
     expect(
         getResponse.status(),
         `GitHub API returned ${getResponse.status()}`
     ).toBe(200);
 
-    const repositoryBeforeUpdate = await getResponse.json();
+    const repositoryBeforeUpdate =
+        await getResponse.json();
 
     const originalDescription =
         repositoryBeforeUpdate.description;
@@ -61,43 +68,63 @@ test('Update GitHub repository description', async ({
         const updatedRepository =
             await updateResponse.json();
 
-        console.log('Updated Repository Details:');
+        await test.step(
+            'Validate updated repository response schema',
+            async () => {
+                validateSchema(
+                    repositorySchema,
+                    updatedRepository,
+                    'GitHub Repository Update Response'
+                );
+            }
+        );
+
+        console.log(
+            'Updated Repository Details:'
+        );
+
         console.log(
             'Repository Name:',
             updatedRepository.name
         );
+
         console.log(
             'Full Name:',
             updatedRepository.full_name
         );
+
         console.log(
             'Owner:',
             updatedRepository.owner.login
         );
+
         console.log(
             'Visibility:',
             updatedRepository.visibility
         );
+
         console.log(
             'Updated Description:',
             updatedRepository.description
         );
 
-        expect(updatedRepository.name).toBe(
-            repository
-        );
+        expect(
+            updatedRepository.name
+        ).toBe(repository);
 
-        expect(updatedRepository.full_name).toBe(
+        expect(
+            updatedRepository.full_name
+        ).toBe(
             `${owner}/${repository}`
         );
 
-        expect(updatedRepository.owner.login).toBe(
-            owner
-        );
+        expect(
+            updatedRepository.owner.login
+        ).toBe(owner);
 
-        expect(updatedRepository.description).toBe(
-            updatedDescription
-        );
+        expect(
+            updatedRepository.description
+        ).toBe(updatedDescription);
     } finally {
         if (updateSucceeded) {
             const restoreResponse =

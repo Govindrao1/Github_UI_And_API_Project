@@ -23,6 +23,7 @@ UI CREATE → API Validation
 UI vs API Repository Validation
 GitHub App JWT authentication
 Installation access-token caching
+JSON Schema + AJV response validation
 Shared Playwright fixtures
 ```
 
@@ -92,6 +93,9 @@ GitHub/
 │       └── repositories/
 │           └── ui_create_repository.spec.ts
 ├── utils/
+│   └── schemaValidator.ts
+├── schemas/
+│   └── repository.schema.json
 ├── secrets/
 ├── .env
 ├── .env.example
@@ -233,15 +237,23 @@ The architecture is:
         ↓
 3. Read actual owner from UI
         ↓
+1. Login through UI
+        ↓
+2. Create repository through UI
+        ↓
+3. Read actual owner from UI
+        ↓
 4. Poll repository GET API until HTTP 200
         ↓
-5. Validate API repository details
+5. Validate API response against JSON Schema with AJV
         ↓
-6. Navigate to the created repository through UI
+6. Validate API repository details
         ↓
-7. Read actual UI repository details
+7. Navigate to the created repository through UI
         ↓
-8. Compare UI and API details
+8. Read actual UI repository details
+        ↓
+9. Compare UI and API details
 ```
 
 The test compares:
@@ -261,6 +273,8 @@ private = false → public
 ```
 
 The cross-interface comparison remains in the test layer because it is test validation logic rather than a page-object or API-resource responsibility.
+
+The hybrid test validates the repository API response against the reusable repository JSON Schema before performing scenario-specific API assertions and UI/API comparison.
 
 ## 8. Backend Synchronization Strategy
 
@@ -442,6 +456,7 @@ GitHub REST API
 The GET test verifies:
 
 - HTTP status is `200`
+- Repository response conforms to the repository JSON Schema through AJV
 - Repository full name
 - Repository name
 - Owner login
@@ -480,6 +495,8 @@ Validate updated response
         ↓
 Restore original description
 ```
+
+The returned repository object is validated against the shared repository JSON Schema through AJV before scenario-specific assertions are evaluated.
 
 Restoration is performed in a `finally` block only after a successful update, preventing the test from leaving the main repository in a modified state.
 
@@ -801,6 +818,9 @@ UI Repository CREATE            ✅
 Repository GET                  ✅
 Repository UPDATE               ✅
 Repository DELETE               ✅
+AJV Repository GET validation   ✅
+AJV Repository UPDATE validation ✅
+AJV UI CREATE → API GET validation ✅
 UI CREATE → API Validation      ✅
 UI vs API Detail Comparison     ✅
 ```
@@ -822,3 +842,101 @@ design.md
 ```
 
 No architectural change should be introduced without keeping the implementation and documentation synchronized.
+
+## 29. API Response Schema Validation Design
+
+The framework uses JSON Schema with AJV as a reusable API response-contract validation layer.
+
+### 29.1 Schema Location
+
+The current repository response contract is stored at:
+
+```text
+schemas/repository.schema.json
+```
+
+The schema defines required repository fields and their expected JSON data types, including the nested owner object. The schema allows additional response properties so that new GitHub fields do not create unnecessary failures in existing automation.
+
+### 29.2 Reusable Validator
+
+The validation utility is:
+
+```text
+utils/schemaValidator.ts
+```
+
+Its responsibility is to:
+
+```text
+Receive schema
+      ↓
+Compile schema with AJV
+      ↓
+Validate API response JSON
+      ↓
+PASS → continue test
+FAIL → throw detailed validation error
+```
+
+The utility is intentionally kept outside the API client and repository resource layers. It is a test-support capability used after an API response has been received.
+
+### 29.3 Current Schema Validation Coverage
+
+```text
+Repository GET response
+        ↓
+repository.schema.json
+        ↓
+AJV validation ✅
+
+Repository UPDATE response
+        ↓
+repository.schema.json
+        ↓
+AJV validation ✅
+
+UI CREATE → API GET response
+        ↓
+repository.schema.json
+        ↓
+AJV validation ✅
+```
+
+The DELETE response is not passed through the repository schema because a successful DELETE does not return a repository object.
+
+### 29.4 Contract Validation vs Business Validation
+
+The framework keeps these responsibilities separate:
+
+```text
+API Response
+     │
+     ├── AJV / JSON Schema
+     │      → structure, required fields, data types, enum constraints
+     │
+     └── Test Assertions
+            → expected repository name
+            → expected owner
+            → expected description
+            → expected visibility
+```
+
+This allows the same response contract to be reused across multiple tests while keeping scenario-specific expectations inside the tests.
+
+### 29.5 Failure Behavior
+
+When validation fails, `schemaValidator.ts` throws an error containing the schema-validation messages returned by AJV. A successful validation logs the schema name and a concise pass message.
+
+### 29.6 Extension Strategy
+
+Future schema work should extend the contract layer only when a new API response requires it. Examples include:
+
+```text
+Additional repository response schemas
+Negative schema-validation tests
+Richer AJV diagnostics
+Shared schema-loading conventions
+```
+
+The existing repository schema should be reused whenever the response contract is the same.
+
