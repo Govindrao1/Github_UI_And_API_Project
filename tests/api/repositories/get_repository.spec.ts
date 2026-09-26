@@ -3,6 +3,7 @@ import { RepositoryApi } from '../../../api/repositories/repositoryApi';
 
 import repositorySchema from '../../../schemas/repository.schema.json';
 import { validateSchema } from '../../../utils/schemaValidator';
+import { GitHubRepository } from '../../../models/repository';
 
 test('Get GitHub repository details', async ({
     githubApiClient,
@@ -22,7 +23,7 @@ test('Get GitHub repository details', async ({
     ).toBe(200);
 
     const responseBody =
-        await response.json();
+        await response.json() as GitHubRepository;
 
     await test.step(
         'Validate repository response schema',

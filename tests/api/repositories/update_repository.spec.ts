@@ -5,6 +5,7 @@ import repositorySchema from '../../../schemas/repository.schema.json';
 import updateRepositoryRequestSchema from '../../../schemas/update-repository-request.schema.json';
 
 import { validateSchema } from '../../../utils/schemaValidator';
+import { GitHubRepository } from '../../../models/repository';
 
 test('Update GitHub repository description', async ({
     githubApiClient,
@@ -28,7 +29,7 @@ test('Update GitHub repository description', async ({
     ).toBe(200);
 
     const repositoryBeforeUpdate =
-        await getResponse.json();
+        await getResponse.json() as GitHubRepository;
 
     const originalDescription =
         repositoryBeforeUpdate.description;
@@ -81,7 +82,7 @@ test('Update GitHub repository description', async ({
         updateSucceeded = true;
 
         const updatedRepository =
-            await updateResponse.json();
+            await updateResponse.json() as GitHubRepository;
 
         await test.step(
             'Validate updated repository response schema',

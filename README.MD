@@ -68,6 +68,8 @@ GitHub/
 ├── data/
 ├── fixtures/
 │   └── basefixture.ts
+├── models/
+│   └── repository.ts
 ├── pages/
 │   ├── loginpage.ts
 │   ├── newrepositorypage.ts
@@ -84,7 +86,8 @@ GitHub/
 │   │       └── delete_repository.spec.ts
 │   └── e2e/
 │       └── repositories/
-│           └── ui_create_repository.spec.ts
+│           ├── ui_create_repository.spec.ts
+│           └── ui_update_repository.spec.ts
 ├── utils/
 │   └── schemaValidator.ts
 ├── schemas/
@@ -272,6 +275,38 @@ Schema validation is separate from business assertions. AJV validates the respon
 The repository schema intentionally allows additional response properties so that newly introduced GitHub response fields do not cause unnecessary test failures.
 
 DELETE responses are not validated with the repository schema because a successful DELETE returns no repository object to validate.
+
+## API Response Type Safety
+
+The framework uses a TypeScript repository response model alongside JSON Schema and AJV.
+
+The current model is:
+
+```text
+models/repository.ts
+```
+
+The model defines the repository fields consumed by the automation, including the nested owner object and repository timestamps. It is used at compile time to replace untyped `Record<string, any>` API response handling with an explicit `GitHubRepository` contract.
+
+The validation strategy is intentionally layered:
+
+```text
+GitHub API response
+        ↓
+TypeScript GitHubRepository
+        ↓
+Compile-time type safety
+        ↓
+AJV + JSON Schema
+        ↓
+Runtime response-contract validation
+        ↓
+Playwright business assertions
+```
+
+TypeScript provides compile-time guidance for properties used by tests. AJV remains responsible for validating the actual runtime JSON response against the repository schema. The two mechanisms complement each other and are not replacements for one another.
+
+Current repository response typing is applied to the relevant GET and UPDATE responses across the API and hybrid repository tests. DELETE responses are not typed as `GitHubRepository` because a successful DELETE returns `204 No Content`.
 
 ## API Request-Payload Schema Validation
 
@@ -780,7 +815,7 @@ Whenever the project architecture, API layer, authentication strategy, UI page-o
 The current full-project regression baseline is:
 
 ```text
-27 tests passed
+27 tests passed (45.3s)
 ```
 
 The implemented hybrid repository coverage is:

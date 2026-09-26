@@ -24,6 +24,7 @@ UI vs API Repository Validation
 GitHub App JWT authentication
 Installation access-token caching
 JSON Schema + AJV request/response contract validation
+TypeScript API response models
 Shared Playwright fixtures
 ```
 
@@ -77,6 +78,8 @@ GitHub/
 ├── data/
 ├── fixtures/
 │   └── basefixture.ts
+├── models/
+│   └── repository.ts
 ├── pages/
 │   ├── loginpage.ts
 │   ├── newrepositorypage.ts
@@ -93,7 +96,8 @@ GitHub/
 │   │       └── delete_repository.spec.ts
 │   └── e2e/
 │       └── repositories/
-│           └── ui_create_repository.spec.ts
+│           ├── ui_create_repository.spec.ts
+│           └── ui_update_repository.spec.ts
 ├── utils/
 │   └── schemaValidator.ts
 ├── schemas/
@@ -392,6 +396,35 @@ api/auth/githubAppAuth.ts
 ```
 
 Responsible for GitHub App authentication and installation-token lifecycle management.
+
+### 9.4 API Response Model Layer
+
+```text
+models/repository.ts
+```
+
+The response model layer provides compile-time TypeScript contracts for repository JSON responses consumed by tests. The current `GitHubRepository` model defines the repository identity, owner, visibility, description, default branch, and other repository fields represented by the project model.
+
+The model layer does not perform runtime validation and does not replace JSON Schema. Its responsibility is compile-time type safety. Runtime response validation remains the responsibility of AJV and the repository JSON Schema.
+
+The layered contract strategy is:
+
+```text
+GitHub API response
+        ↓
+GitHubRepository TypeScript model
+        ↓
+Compile-time property/type safety
+        ↓
+AJV + JSON Schema
+        ↓
+Runtime contract validation
+        ↓
+Business assertions
+```
+
+This separation keeps API response typing independent from the HTTP client, authentication, and repository resource layers. It also avoids introducing response-specific type logic into page objects.
+
 
 ## 10. GitHub App Authentication Design
 
@@ -854,7 +887,7 @@ The project supports Chromium, Firefox, and WebKit execution. For visual debuggi
 npx playwright test --headed
 ```
 
-The current full-project regression checkpoint has passed all 24 tests across the configured browser projects. This count is a current execution baseline and will change as coverage evolves.
+The latest full-project regression checkpoint passed 27 tests in 45.3 seconds. This count is a current execution baseline and will change as coverage evolves.
 
 ## 26. Git Strategy
 
@@ -984,7 +1017,7 @@ No architectural change should be introduced without keeping the implementation 
 
 ## 30. API Response Schema Validation Design
 
-The framework uses JSON Schema with AJV as a reusable API response-contract validation layer.
+The framework uses JSON Schema with AJV as a reusable API response-contract validation layer. A complementary TypeScript response model layer provides compile-time type safety for repository responses consumed by the tests.
 
 ### 30.1 Schema Location
 

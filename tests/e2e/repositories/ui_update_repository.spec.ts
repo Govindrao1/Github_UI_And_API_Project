@@ -6,6 +6,7 @@ import repositorySchema from '../../../schemas/repository.schema.json';
 import updateRepositoryRequestSchema from '../../../schemas/update-repository-request.schema.json';
 
 import { validateSchema } from '../../../utils/schemaValidator';
+import { GitHubRepository } from '../../../models/repository';
 
 test(
     'Create repository through UI, update through API, and verify through UI',
@@ -109,7 +110,7 @@ test(
                     ).toBe(200);
 
                     const repositoryDetails =
-                        await response.json();
+                        await response.json() as GitHubRepository;
 
                     await test.step(
                         'Validate created repository response schema',
@@ -193,7 +194,7 @@ test(
                     ).toBe(200);
 
                     const updatedRepository =
-                        await updateResponse.json();
+                        await updateResponse.json() as GitHubRepository;
 
                     await test.step(
                         'Validate updated repository response schema',

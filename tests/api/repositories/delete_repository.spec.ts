@@ -1,6 +1,7 @@
 import { test, expect } from '../../../fixtures/basefixture';
 
 import { RepositoryApi } from '../../../api/repositories/repositoryApi';
+import { GitHubRepository } from '../../../models/repository';
 
 test(
     'Create and delete GitHub repository through UI and API',
@@ -95,7 +96,7 @@ test(
                 ).toBe(200);
 
                 const repositoryDetails =
-                    await getResponse.json();
+                    await getResponse.json() as GitHubRepository;
 
                 expect(
                     repositoryDetails.name
