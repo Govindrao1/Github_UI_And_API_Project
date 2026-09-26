@@ -2,6 +2,8 @@ import { test, expect } from '../../../fixtures/basefixture';
 import { RepositoryApi } from '../../../api/repositories/repositoryApi';
 
 import repositorySchema from '../../../schemas/repository.schema.json';
+import updateRepositoryRequestSchema from '../../../schemas/update-repository-request.schema.json';
+
 import { validateSchema } from '../../../utils/schemaValidator';
 
 test('Update GitHub repository description', async ({
@@ -34,16 +36,29 @@ test('Update GitHub repository description', async ({
     const updatedDescription =
         `Updated by Playwright API automation - ${Date.now()}`;
 
+    const updatePayload = {
+        description: updatedDescription,
+    };
+
     let updateSucceeded = false;
 
     try {
+        await test.step(
+            'Validate update request payload schema',
+            async () => {
+                validateSchema(
+                    updateRepositoryRequestSchema,
+                    updatePayload,
+                    'GitHub Repository Update Request'
+                );
+            }
+        );
+
         const updateResponse =
             await repositoryApi.updateRepository(
                 owner,
                 repository,
-                {
-                    description: updatedDescription,
-                }
+                updatePayload
             );
 
         console.log(
