@@ -1,7 +1,6 @@
 import { expect, Locator, Page } from '@playwright/test';
 
 export class LoginPage {
-
     private readonly page: Page;
 
     private readonly username: Locator;
@@ -29,8 +28,8 @@ export class LoginPage {
         this.loginErrorAlert = page.getByRole('alert');
     }
 
-    async navigateToLoginPage(url: string): Promise<void> {
-        await this.page.goto(url);
+    async navigateToLoginPage(): Promise<void> {
+        await this.page.goto('/login');
     }
 
     async enterUsername(username: string): Promise<void> {
@@ -46,21 +45,27 @@ export class LoginPage {
     }
 
     async verifyLoginResult(): Promise<void> {
+        if (await this.loginErrorAlert.isVisible()) {
+            console.log(
+                '❌ GitHub login failed: Incorrect username or password.'
+            );
 
-    if (await this.loginErrorAlert.isVisible()) {
-        console.log('❌ GitHub login failed: Incorrect username or password.');
+            throw new Error(
+                'GitHub login failed: Incorrect username or password.'
+            );
+        }
 
-        throw new Error(
-            'GitHub login failed: Incorrect username or password.'
+        await expect(this.dashboard).toBeVisible();
+
+        console.log(
+            '✅ GitHub login successful: Dashboard is displayed.'
         );
     }
 
-    await expect(this.dashboard).toBeVisible();
-
-    console.log('✅ GitHub login successful: Dashboard is displayed.');
-}
-
-    async login(username: string, password: string): Promise<void> {
+    async login(
+        username: string,
+        password: string
+    ): Promise<void> {
         await this.enterUsername(username);
         await this.enterPassword(password);
         await this.clickLogin();
