@@ -14,6 +14,7 @@ The framework currently supports:
 - Repository DELETE automation using a disposable test repository
 - UI-created repository validation through the GitHub API
 - UI versus API repository detail consistency validation
+- UI CREATE → API UPDATE → UI VERIFY hybrid validation
 - GitHub App authentication using JWT and installation access tokens
 - Installation-token caching and reuse during the test run
 - JSON Schema request and response contract validation using AJV
@@ -32,6 +33,7 @@ The project is designed so that UI and API automation share the same Playwright 
 | Repository DELETE | ✅ Implemented |
 | UI CREATE → API Validation | ✅ Implemented |
 | UI vs API Repository Validation | ✅ Implemented |
+| UI CREATE → API UPDATE → UI VERIFY | ✅ Implemented |
 | GitHub App JWT authentication | ✅ Implemented |
 | Installation token caching | ✅ Implemented |
 | TypeScript validation | ✅ Passing |
@@ -190,6 +192,56 @@ The API visibility value is normalized from the `private` boolean before compari
 The API GET is used as the synchronization point after the UI create action. The test polls until the repository becomes available instead of using a fixed sleep.
 
 After the repository becomes available, the API response is validated against `schemas/repository.schema.json` using the reusable `utils/schemaValidator.ts` AJV utility. The same repository schema is reused for applicable repository-object responses instead of duplicating response contracts.
+
+## Hybrid UI CREATE → API UPDATE → UI VERIFY
+
+The project also contains a cross-layer state-change scenario:
+
+```text
+Login through UI
+        ↓
+Create disposable repository through UI
+        ↓
+Wait for repository to become available through API
+        ↓
+Validate created repository response schema
+        ↓
+Update repository description through API
+        ↓
+Validate UPDATE request payload schema
+        ↓
+Validate updated repository response schema
+        ↓
+Verify updated description through API GET
+        ↓
+Open updated repository through UI
+        ↓
+Verify updated description through UI
+        ↓
+Delete disposable repository
+```
+
+The hybrid UPDATE test is located at:
+
+```text
+tests/e2e/repositories/ui_update_repository.spec.ts
+```
+
+The scenario validates that a state change made through the API is correctly reflected in the GitHub UI.
+
+The test uses a unique disposable repository and cleans it up through the API after execution. The UI page object layer is not modified specifically for this scenario; the test uses a scenario-specific visible locator for the updated description because GitHub renders responsive/mobile description elements in different DOM states.
+
+The scenario validates:
+
+```text
+UI repository creation
+API repository availability
+API UPDATE request schema
+API UPDATE response schema
+API GET updated state
+UI updated state
+Disposable repository cleanup
+```
 
 ## API Response Schema Validation
 
@@ -659,6 +711,12 @@ The DELETE test creates its own unique disposable repository during the test and
 npx playwright test tests/e2e/repositories/ui_create_repository.spec.ts --project=chromium
 ```
 
+### UI CREATE + API UPDATE + UI Verification
+
+```powershell
+npx playwright test tests/e2e/repositories/ui_update_repository.spec.ts --project=chromium
+```
+
 ### Full Project Regression
 
 ```powershell
@@ -717,6 +775,23 @@ Before committing, verify that secrets and generated artifacts are not staged.
 
 Whenever the project architecture, API layer, authentication strategy, UI page-object layer, fixture architecture, test structure, or major project-level behavior changes, both files must be updated so they remain synchronized with the actual implementation.
 
+## Current Validation Baseline
+
+The current full-project regression baseline is:
+
+```text
+27 tests passed
+```
+
+The implemented hybrid repository coverage is:
+
+```text
+UI CREATE → API GET → UI VERIFY       ✅
+UI CREATE → API UPDATE → UI VERIFY    ✅
+```
+
+The UPDATE hybrid scenario also validates request and response contracts and cleans up its disposable repository after execution.
+
 ## Current Architecture Principles
 
 - Keep UI page objects separate from API resources.
@@ -739,6 +814,7 @@ Potential future work should be added only when required, for example:
 
 - Additional negative request-schema validation scenarios and richer AJV failure diagnostics
 - Additional repository UI/API scenarios
+- Additional cross-layer state-change scenarios where they provide real test value
 - Additional GitHub API resources
 
 Any future project-level change should be reflected in both `README.MD` and `design.md`.

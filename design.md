@@ -274,6 +274,52 @@ The cross-interface comparison remains in the test layer because it is test vali
 
 The hybrid test validates the repository API response against the reusable repository JSON Schema before performing scenario-specific API assertions and UI/API comparison.
 
+### 7.1 UI CREATE → API UPDATE → UI VERIFY
+
+A second hybrid scenario validates cross-layer state synchronization after an API mutation.
+
+The test is:
+
+```text
+tests/e2e/repositories/ui_update_repository.spec.ts
+```
+
+Its flow is:
+
+```text
+1. Login through UI
+        ↓
+2. Create unique disposable repository through UI
+        ↓
+3. Poll API GET until repository is available
+        ↓
+4. Validate repository response schema
+        ↓
+5. Build API UPDATE payload
+        ↓
+6. Validate UPDATE request payload schema
+        ↓
+7. Execute API PATCH
+        ↓
+8. Validate updated repository response schema
+        ↓
+9. Verify updated description through API GET
+        ↓
+10. Open repository through UI
+        ↓
+11. Verify updated description through UI
+        ↓
+12. Delete disposable repository
+```
+
+This scenario proves that an API-side state change is observable through the UI.
+
+The test owns its disposable repository lifecycle. A unique repository name is generated for each execution, and cleanup is performed through the repository DELETE API in a `finally` block.
+
+The updated description is verified directly in the scenario using a visible page-level locator. This is intentionally kept out of the shared `RepositoryPage` because the scenario exposed GitHub's responsive/mobile description element as a hidden duplicate; the shared page object remains unchanged.
+
+The test therefore adds hybrid behavior without introducing a new shared page-object abstraction for a scenario-specific DOM condition.
+
 ## 8. Backend Synchronization Strategy
 
 The UI create action and backend API availability are treated as separate events.
@@ -905,11 +951,22 @@ AJV 404 error response validation         ✅
 DELETE disposable-resource lifecycle      ✅
 UI CREATE → API Validation                 ✅
 UI vs API Detail Comparison     ✅
+UI CREATE → API UPDATE → UI VERIFY          ✅
 ```
 
 Repository CREATE through the current API layer remains intentionally unsupported.
 
-## 29. Next Change Rule
+## 29. Current Regression Baseline
+
+The latest full-project regression baseline is:
+
+```text
+27 tests passed
+```
+
+This baseline includes the repository UI/API CREATE and UPDATE hybrid scenarios, API contract validation, negative request validation, and disposable-resource DELETE lifecycle.
+
+## 30. Next Change Rule
 
 Before introducing the next project-level feature, verify the current working tree and review the impact on:
 
