@@ -4,7 +4,7 @@
 
 This document is the source of truth for the architecture and design of the current GitHub UI and API automation project.
 
-The framework is built with Playwright and TypeScript and separates UI automation, API authentication, API transport, API resources, fixtures, and test validation.
+The framework is built with Playwright and TypeScript and separates UI automation, API authentication, API transport, API resources, fixtures, page objects, and test validation.
 
 Any project-level architecture or design change must be reflected here and synchronized with `README.MD`.
 
@@ -14,16 +14,21 @@ The current implementation contains:
 
 ```text
 UI Login
+UI Repository CREATE
 API Health
 Repository GET
 Repository UPDATE
 Repository DELETE
+UI CREATE → API Validation
+UI vs API Repository Validation
 GitHub App JWT authentication
 Installation access-token caching
 Shared Playwright fixtures
 ```
 
-Repository CREATE is not implemented with the current installation-token authentication context.
+Repository CREATE is **not implemented in the current API resource layer** because the project uses an installation access token and the attempted user-context `POST /user/repos` operation returned `403 Resource not accessible by integration`.
+
+Repository CREATE **is implemented at the UI layer** and is covered by the hybrid end-to-end scenario.
 
 ## 3. High-Level Architecture
 
@@ -35,10 +40,11 @@ Repository CREATE is not implemented with the current installation-token authent
                  ▼                           ▼
              UI Layer                    API Layer
                  │                           │
-                 ▼                           ▼
-           LoginPage                 RepositoryApi
-                                             │
-                                             ▼
+        ┌────────┼────────┐                  │
+        │        │        │                  ▼
+        ▼        ▼        ▼            RepositoryApi
+   LoginPage  NewRepo   Repository          │
+              Page       Page               ▼
                                       GitHubApiClient
                                              │
                                              ▼
@@ -71,15 +77,20 @@ GitHub/
 ├── fixtures/
 │   └── basefixture.ts
 ├── pages/
-│   └── loginpage.ts
+│   ├── loginpage.ts
+│   ├── newrepositorypage.ts
+│   └── repositorypage.ts
 ├── tests/
 │   ├── UI_login.spec.ts
-│   └── api/
-│       ├── api_health.spec.ts
+│   ├── api/
+│   │   ├── api_health.spec.ts
+│   │   └── repositories/
+│   │       ├── get_repository.spec.ts
+│   │       ├── update_repository.spec.ts
+│   │       └── delete_repository.spec.ts
+│   └── e2e/
 │       └── repositories/
-│           ├── get_repository.spec.ts
-│           ├── update_repository.spec.ts
-│           └── delete_repository.spec.ts
+│           └── ui_create_repository.spec.ts
 ├── utils/
 ├── secrets/
 ├── .env
@@ -95,9 +106,11 @@ GitHub/
 
 The structure separates responsibilities so that test cases do not need to know authentication or low-level HTTP details.
 
-## 5. UI Architecture
+## 5. UI Page Object Architecture
 
-The UI layer uses the Page Object Model.
+The UI layer follows the Page Object Model.
+
+### 5.1 LoginPage
 
 ```text
 UI Test
@@ -121,7 +134,57 @@ GitHub Web UI
 - Login failure detection
 - Successful-login validation
 
-The UI test should remain focused on the login business flow and should not contain locator details that belong in the page object.
+### 5.2 NewRepositoryPage
+
+```text
+Hybrid Test
+    │
+    ▼
+NewRepositoryPage
+    │
+    ▼
+GitHub Create Repository UI
+```
+
+`NewRepositoryPage` owns:
+
+- Reading the selected repository owner
+- Repository name entry
+- Repository name availability validation
+- Description entry
+- Private visibility selection
+- Add README selection
+- Create repository click
+
+The page object intentionally does not perform API calls.
+
+Repository name availability is treated as a UI readiness condition. The framework waits for GitHub's visible `is available.` state rather than using a fixed delay before submitting the form.
+
+The create action itself is intentionally kept as a simple enabled-button click. Post-create repository synchronization is handled outside the page object.
+
+### 5.3 RepositoryPage
+
+```text
+Hybrid Test
+    │
+    ▼
+RepositoryPage
+    │
+    ▼
+GitHub Repository UI
+```
+
+`RepositoryPage` owns:
+
+- Repository navigation
+- Repository name extraction
+- Repository owner extraction
+- Repository description extraction
+- Repository visibility extraction
+
+The repository description locator is scoped to the repository `article` so that hidden responsive/mobile description elements are not selected.
+
+Repository navigation explicitly validates the expected repository URL. The implementation handles the observed `net::ERR_ABORTED` case only when the browser has already reached the expected repository URL; unrelated navigation errors continue to fail the test.
 
 ## 6. Fixture Architecture
 
@@ -131,6 +194,8 @@ Current custom fixtures:
 
 ```text
 loginPage
+newRepositoryPage
+repositoryPage
 githubApiClient
 ```
 
@@ -140,21 +205,96 @@ Architecture:
 Playwright base test
         │
         ├── page fixture
-        │      ↓
-        │   LoginPage
+        │      ├── LoginPage
+        │      ├── NewRepositoryPage
+        │      └── RepositoryPage
         │
         └── request fixture
                ↓
          GitHubApiClient
 ```
 
-This allows both UI and API dependencies to be injected directly into tests.
+This allows UI page objects and the API client to be injected directly into tests.
 
-## 7. API Architecture
+## 7. Hybrid UI/API Test Architecture
+
+The repository hybrid test is located at:
+
+```text
+tests/e2e/repositories/ui_create_repository.spec.ts
+```
+
+The architecture is:
+
+```text
+1. Login through UI
+        ↓
+2. Create repository through UI
+        ↓
+3. Read actual owner from UI
+        ↓
+4. Poll repository GET API until HTTP 200
+        ↓
+5. Validate API repository details
+        ↓
+6. Navigate to the created repository through UI
+        ↓
+7. Read actual UI repository details
+        ↓
+8. Compare UI and API details
+```
+
+The test compares:
+
+```text
+Repository Name
+Owner
+Description
+Visibility
+```
+
+The API `private` boolean is normalized to the UI visibility representation:
+
+```text
+private = true  → private
+private = false → public
+```
+
+The cross-interface comparison remains in the test layer because it is test validation logic rather than a page-object or API-resource responsibility.
+
+## 8. Backend Synchronization Strategy
+
+The UI create action and backend API availability are treated as separate events.
+
+The framework uses the repository GET endpoint as a synchronization point:
+
+```text
+UI Create click
+      ↓
+Backend repository creation
+      ↓
+API GET returns 404 while unavailable
+      ↓
+API GET eventually returns 200
+      ↓
+Continue with validation
+```
+
+The implementation uses Playwright `expect.poll()` with a bounded timeout and explicit polling intervals.
+
+This is preferred over:
+
+```text
+waitForTimeout(...)
+```
+
+because the test waits for the required backend condition instead of an arbitrary amount of time.
+
+## 9. API Architecture
 
 The API architecture has three primary layers.
 
-### 7.1 API Resource Layer
+### 9.1 API Resource Layer
 
 ```text
 api/repositories/repositoryApi.ts
@@ -168,9 +308,9 @@ updateRepository()
 deleteRepository()
 ```
 
-The resource layer should expose business-oriented methods rather than raw HTTP implementation details.
+The resource layer exposes business-oriented methods rather than raw HTTP implementation details.
 
-### 7.2 API Client Layer
+### 9.2 API Client Layer
 
 ```text
 api/client/githubApiClient.ts
@@ -185,9 +325,9 @@ Responsible for:
 - Sending PATCH requests
 - Sending DELETE requests
 
-The API client should remain reusable across different GitHub API resource classes.
+The API client remains reusable across different GitHub API resource classes.
 
-### 7.3 Authentication Layer
+### 9.3 Authentication Layer
 
 ```text
 api/auth/githubAppAuth.ts
@@ -195,7 +335,7 @@ api/auth/githubAppAuth.ts
 
 Responsible for GitHub App authentication and installation-token lifecycle management.
 
-## 8. GitHub App Authentication Design
+## 10. GitHub App Authentication Design
 
 The project uses the following authentication flow:
 
@@ -226,7 +366,7 @@ The current authentication class validates:
 
 The private key is read only when generating the App JWT.
 
-## 9. JWT Design
+## 11. JWT Design
 
 The App JWT is generated using the RSA private key and RS256.
 
@@ -240,9 +380,9 @@ iss
 
 The generated JWT is short-lived and is used to obtain an installation access token.
 
-The implementation intentionally keeps JWT generation inside `GitHubAppAuth` so that resource and test layers remain independent of signing details.
+JWT generation remains inside `GitHubAppAuth` so that resource and test layers remain independent of signing details.
 
-## 10. Installation Access Token Design
+## 12. Installation Access Token Design
 
 The installation access token represents the installed GitHub App and is used by `GitHubApiClient` for API requests.
 
@@ -257,7 +397,7 @@ The token is reused while it remains sufficiently far from expiry. A refresh is 
 
 This avoids unnecessary token-generation API calls during a test run.
 
-## 11. API Client Request Flow
+## 13. API Client Request Flow
 
 Every API request follows this sequence:
 
@@ -281,7 +421,7 @@ Test validates response
 
 Tests therefore remain independent of token-generation mechanics.
 
-## 12. Repository GET Design
+## 14. Repository GET Design
 
 Endpoint:
 
@@ -307,7 +447,9 @@ The GET test verifies:
 - Owner login
 - Visibility
 
-## 13. Repository UPDATE Design
+The same endpoint is also used as the backend synchronization point in the hybrid UI/API repository test.
+
+## 15. Repository UPDATE Design
 
 Endpoint:
 
@@ -339,9 +481,9 @@ Validate updated response
 Restore original description
 ```
 
-Restoration is performed in a `finally` block only after a successful update, preventing cleanup failures from hiding the original test failure unnecessarily.
+Restoration is performed in a `finally` block only after a successful update, preventing the test from leaving the main repository in a modified state.
 
-## 14. Repository DELETE Design
+## 16. Repository DELETE Design
 
 Endpoint:
 
@@ -375,13 +517,7 @@ The DELETE test uses a disposable repository and follows this lifecycle:
 6. Verify status 404
 ```
 
-The disposable repository used for the completed validation was:
-
-```text
-Govindrao1/Github_Delete_Test
-```
-
-It was deleted successfully and must not be assumed to exist for future test runs.
+The previously used disposable repository was deleted successfully and must not be assumed to exist for future test runs.
 
 ### DELETE Safety Rule
 
@@ -393,7 +529,7 @@ Govindrao1/Github_UI_And_API_Project
 
 A new disposable repository must be created and explicitly granted to the GitHub App installation before repeating destructive DELETE validation.
 
-## 15. Repository CREATE Limitation
+## 17. Repository CREATE Limitation
 
 Repository CREATE is deliberately excluded from the current `RepositoryApi` implementation.
 
@@ -409,7 +545,7 @@ with that token returned:
 403 Resource not accessible by integration
 ```
 
-Therefore the current architecture does not expose:
+Therefore the current API architecture does not expose:
 
 ```text
 createRepository()
@@ -417,11 +553,23 @@ createRepository()
 
 under the current authentication model.
 
-This design decision is intentionally documented rather than hiding the limitation behind a test or an unsupported API abstraction.
+This design decision is intentionally documented rather than hiding the limitation behind an unsupported API abstraction.
 
-A future implementation of repository creation would require a suitable user-context authentication model or another explicitly supported GitHub authentication mechanism. Such a change would require an architecture review before implementation.
+Repository creation is covered through the UI layer instead:
 
-## 16. Current API Capability Matrix
+```text
+NewRepositoryPage
+      ↓
+GitHub UI repository creation
+      ↓
+RepositoryApi.getRepository()
+      ↓
+Cross-interface validation
+```
+
+A future API-based repository-creation implementation would require a suitable user-context authentication model or another explicitly supported GitHub authentication mechanism. Such a change requires an architecture review before implementation.
+
+## 18. Current API Capability Matrix
 
 | Operation | Endpoint | Current Status |
 |---|---|---|
@@ -430,7 +578,7 @@ A future implementation of repository creation would require a suitable user-con
 | CREATE | `POST /user/repos` | ⚠️ Not implemented with current authentication context |
 | DELETE | `DELETE /repos/{owner}/{repo}` | ✅ Implemented |
 
-## 17. Environment Design
+## 19. Environment Design
 
 The project uses environment variables for runtime configuration.
 
@@ -454,7 +602,9 @@ GITHUB_APP_PRIVATE_KEY_PATH
 
 The application code reads these values at runtime rather than embedding credentials in source code.
 
-## 18. Secret Management
+The hybrid UI/API repository scenario reads the actual selected owner from the UI. A separate repository-owner environment variable is not required by the current implementation.
+
+## 20. Secret Management
 
 Sensitive values are intentionally excluded from source control.
 
@@ -469,7 +619,7 @@ secrets/*                → local only
 
 No test or utility should print secret values.
 
-## 19. Playwright Configuration Design
+## 21. Playwright Configuration Design
 
 `playwright.config.ts` currently defines:
 
@@ -487,7 +637,7 @@ The API client uses its own `GITHUB_API_BASE_URL` value when constructing API en
 
 The Playwright request fixture is used through `basefixture.ts`; it is not overridden through the Playwright configuration's `use` object.
 
-## 20. TypeScript Design
+## 22. TypeScript Design
 
 The project uses strict TypeScript configuration.
 
@@ -511,14 +661,22 @@ Validation command:
 npx tsc --noEmit
 ```
 
-## 21. Test Design Principles
+## 23. Test Design Principles
 
 Tests are responsible for:
 
 - Calling resource methods
 - Validating HTTP status codes
 - Validating important response fields
+- Performing cross-interface comparison when required
 - Logging useful test diagnostics
+
+UI page objects are responsible for:
+
+- Locators
+- UI navigation
+- UI actions
+- UI-specific extraction and assertions needed by the page abstraction
 
 API resource classes are responsible for:
 
@@ -537,9 +695,9 @@ Authentication is responsible for:
 - Installation-token generation
 - Token caching and refresh
 
-This separation keeps the framework maintainable as API coverage grows.
+This separation keeps the framework maintainable as UI and API coverage grows.
 
-## 22. Destructive Test Strategy
+## 24. Destructive Test Strategy
 
 Destructive APIs require a disposable resource.
 
@@ -557,7 +715,7 @@ Repository removed
 
 The main automation repository must never be used as the DELETE target.
 
-## 23. Git Strategy
+## 25. Git Strategy
 
 The project uses:
 
@@ -578,7 +736,7 @@ git push
 
 Before pushing, verify that sensitive files are not staged.
 
-## 24. Documentation Synchronization
+## 26. Documentation Synchronization
 
 `design.md` is the architectural source of truth.
 
@@ -588,51 +746,73 @@ Whenever there is a project-level change such as:
 
 - New API resource
 - New authentication mechanism
+- New UI page object
 - Change in fixture architecture
 - Change in test organization
 - Change in security strategy
 - Change in major Playwright configuration
+- New hybrid UI/API validation flow
 
 both `design.md` and `README.MD` must be updated in the same development cycle.
 
-## 25. Current Baseline
+## 27. Current Validation Baseline
 
-The completed repository API baseline is:
+The completed validation baseline is:
 
 ```text
-            Repository API
+                    GitHub Automation
+                           │
+             ┌─────────────┴─────────────┐
+             │                           │
+             ▼                           ▼
+          UI Layer                    API Layer
+             │                           │
+      ┌──────┼──────┐              ┌────┼────┐
+      │      │      │              │    │    │
+      ▼      ▼      ▼              ▼    ▼    ▼
+    Login  Create  Repo            GET UPDATE DELETE
+             │      Page            │    │      │
+             │        │             200  200    204
+             │        │
+             └────┬───┘
                   │
-       ┌──────────┼──────────┐
-       │          │          │
-       ▼          ▼          ▼
-      GET       UPDATE     DELETE
-       │          │          │
-       ▼          ▼          ▼
-      200        200        204
-                             │
-                             ▼
-                            GET
-                             │
-                             ▼
-                            404
+                  ▼
+          UI → API Synchronization
+                  │
+                  ▼
+          API Detail Validation
+                  │
+                  ▼
+          UI Detail Validation
+                  │
+                  ▼
+            UI ↔ API Compare
+                  │
+                  ▼
+                 ✅
 ```
 
 The current implementation has successfully validated:
 
 ```text
-TypeScript compilation       ✅
-Repository GET               ✅
-Repository UPDATE            ✅
-Repository DELETE            ✅
+TypeScript compilation          ✅
+UI Login                        ✅
+UI Repository CREATE            ✅
+Repository GET                  ✅
+Repository UPDATE               ✅
+Repository DELETE               ✅
+UI CREATE → API Validation      ✅
+UI vs API Detail Comparison     ✅
 ```
 
-Repository CREATE remains intentionally unsupported under the current installation-token authentication approach.
+Repository CREATE through the current API layer remains intentionally unsupported.
 
-## 26. Next Change Rule
+## 28. Next Change Rule
 
 Before introducing the next project-level feature, verify the current working tree and review the impact on:
 
 ```text
+UI page-object layer
 API layer
 Authentication layer
 Fixtures

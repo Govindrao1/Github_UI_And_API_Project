@@ -7,32 +7,38 @@ This project is a Playwright + TypeScript automation framework for testing GitHu
 The framework currently supports:
 
 - GitHub UI login automation
+- GitHub UI repository creation
 - GitHub API health validation
 - Repository GET automation
 - Repository UPDATE automation
 - Repository DELETE automation using a disposable test repository
+- UI-created repository validation through the GitHub API
+- UI versus API repository detail consistency validation
 - GitHub App authentication using JWT and installation access tokens
 - Installation-token caching and reuse during the test run
 
-The project is designed so that UI and API automation share the same Playwright test infrastructure while keeping page objects, fixtures, API clients, authentication, and API resource classes separated.
+The project is designed so that UI and API automation share the same Playwright test infrastructure while keeping page objects, fixtures, API clients, authentication, API resource classes, and test validation separated.
 
 ## Current Status
 
 | Area | Status |
 |---|---|
 | UI Login | ✅ Implemented |
+| UI Repository CREATE | ✅ Implemented |
 | API Health | ✅ Implemented |
 | Repository GET | ✅ Implemented |
 | Repository UPDATE | ✅ Implemented |
-| Repository CREATE | ⚠️ Not supported with current installation-token authentication model |
 | Repository DELETE | ✅ Implemented |
+| UI CREATE → API Validation | ✅ Implemented |
+| UI vs API Repository Validation | ✅ Implemented |
 | GitHub App JWT authentication | ✅ Implemented |
 | Installation token caching | ✅ Implemented |
 | TypeScript validation | ✅ Passing |
+| Repository CREATE through current API layer | ⚠️ Not supported with current installation-token authentication model |
 
 ## Technology Stack
 
-- Playwright Test
+- Playwright Test 1.63.0
 - TypeScript
 - Node.js
 - dotenv
@@ -57,15 +63,20 @@ GitHub/
 ├── fixtures/
 │   └── basefixture.ts
 ├── pages/
-│   └── loginpage.ts
+│   ├── loginpage.ts
+│   ├── newrepositorypage.ts
+│   └── repositorypage.ts
 ├── tests/
 │   ├── UI_login.spec.ts
-│   └── api/
-│       ├── api_health.spec.ts
+│   ├── api/
+│   │   ├── api_health.spec.ts
+│   │   └── repositories/
+│   │       ├── get_repository.spec.ts
+│   │       ├── update_repository.spec.ts
+│   │       └── delete_repository.spec.ts
+│   └── e2e/
 │       └── repositories/
-│           ├── get_repository.spec.ts
-│           ├── update_repository.spec.ts
-│           └── delete_repository.spec.ts
+│           └── ui_create_repository.spec.ts
 ├── utils/
 ├── secrets/
 ├── .env
@@ -81,7 +92,9 @@ GitHub/
 
 ## UI Automation
 
-The UI layer uses Playwright Page Object Model.
+The UI layer uses the Playwright Page Object Model.
+
+### LoginPage
 
 `pages/loginpage.ts` encapsulates GitHub login interactions such as:
 
@@ -92,13 +105,76 @@ The UI layer uses Playwright Page Object Model.
 - Detecting the login error alert
 - Verifying that the Dashboard is visible after successful login
 
-The UI test is located at:
+### NewRepositoryPage
+
+`pages/newrepositorypage.ts` encapsulates the GitHub repository creation page.
+
+It currently handles:
+
+- Reading the selected repository owner from the UI
+- Entering repository name
+- Waiting for GitHub to confirm that the repository name is available
+- Entering repository description
+- Selecting private visibility
+- Enabling Add README
+- Clicking Create repository
+
+Repository creation is performed through the GitHub UI. The page object does not depend on automatic post-creation navigation; the resulting repository is subsequently synchronized and validated through the API.
+
+### RepositoryPage
+
+`pages/repositorypage.ts` encapsulates repository-page interactions used by the hybrid UI/API validation.
+
+It currently handles:
+
+- Navigating to a repository using owner and repository name
+- Reading repository name
+- Reading repository owner
+- Reading repository description from the repository article
+- Reading repository visibility
+
+The navigation method explicitly verifies the expected repository URL. It also handles the observed GitHub `ERR_ABORTED` navigation case when the browser has already reached the expected repository URL.
+
+## Hybrid UI and API Validation
+
+The project contains an end-to-end repository scenario:
 
 ```text
-tests/UI_login.spec.ts
+Login through UI
+        ↓
+Create repository through UI
+        ↓
+Read repository owner from UI
+        ↓
+Wait for repository to become available through API
+        ↓
+Validate API repository details
+        ↓
+Open the created repository through UI
+        ↓
+Read UI repository details
+        ↓
+Compare UI details with API details
 ```
 
-The test runs against Chromium, Firefox, and WebKit through the Playwright projects configured in `playwright.config.ts`.
+The hybrid test is located at:
+
+```text
+tests/e2e/repositories/ui_create_repository.spec.ts
+```
+
+The test validates the following repository properties across both interfaces:
+
+```text
+Repository Name
+Owner
+Description
+Visibility
+```
+
+The API visibility value is normalized from the `private` boolean before comparison with the UI value.
+
+The API GET is used as the synchronization point after the UI create action. The test polls until the repository becomes available instead of using a fixed sleep.
 
 ## Playwright Configuration
 
@@ -108,7 +184,7 @@ The framework loads environment variables using dotenv:
 dotenv.config({ quiet: true });
 ```
 
-The current base URL is provided through:
+The current UI base URL is provided through:
 
 ```text
 GITHUB_BASE_URL
@@ -136,11 +212,8 @@ GITHUB_API_BASE_URL
 
 ```text
 loginPage
-```
-
-and
-
-```text
+newRepositoryPage
+repositoryPage
 githubApiClient
 ```
 
@@ -148,7 +221,7 @@ This keeps test cases focused on business actions instead of repeatedly construc
 
 ## GitHub App Authentication
 
-The API layer authenticates through the GitHub App installed for the test repository.
+The API layer authenticates through the GitHub App installed for the project repository.
 
 The authentication flow is:
 
@@ -259,13 +332,7 @@ Implemented through:
 deleteRepository(owner, repository)
 ```
 
-The DELETE test was executed against the disposable repository:
-
-```text
-Govindrao1/Github_Delete_Test
-```
-
-The test validated the complete lifecycle:
+The DELETE test uses a disposable repository and validates the complete lifecycle:
 
 ```text
 GET dummy repository       → 200
@@ -273,7 +340,7 @@ DELETE dummy repository    → 204
 GET after deletion         → 404
 ```
 
-The DELETE test is intentionally destructive. It must only be executed against a disposable repository that is safe to remove. The previously used dummy repository has already been deleted, so a new disposable repository must be created and granted to the GitHub App before repeating the test.
+The DELETE test is intentionally destructive. It must only be executed against a disposable repository that may safely be deleted. The previously used dummy repository has already been deleted, so a new disposable repository must be created and granted to the GitHub App before repeating the test.
 
 ### CREATE Repository
 
@@ -294,6 +361,8 @@ returned:
 The project therefore does not expose `createRepository()` under the current authentication model.
 
 This is a limitation of the current authentication context used by this project, not a statement that GitHub repository creation is universally unavailable to GitHub Apps.
+
+Repository creation is nevertheless covered at the UI layer by the hybrid end-to-end test, which creates the repository through GitHub UI and then validates the resulting repository through the API.
 
 ## Current API Architecture
 
@@ -322,6 +391,28 @@ GitHubAppAuth
 GitHub REST API
 ```
 
+## UI/API Separation
+
+The framework intentionally keeps UI and API responsibilities separate:
+
+```text
+UI Test
+ │
+ ├── LoginPage
+ ├── NewRepositoryPage
+ └── RepositoryPage
+
+API Test / Hybrid Test
+ │
+ └── RepositoryApi
+       │
+       └── GitHubApiClient
+              │
+              └── GitHubAppAuth
+```
+
+The hybrid test is responsible for cross-interface validation, while page objects and API classes remain responsible for their own layers.
+
 ## Environment Configuration
 
 `.env` contains local runtime configuration and secrets and must never be committed.
@@ -341,6 +432,8 @@ GITHUB_APP_PRIVATE_KEY_PATH
 ```
 
 The exact values remain local to the developer environment.
+
+The UI/API hybrid test reads the actual repository owner from the GitHub creation page rather than requiring a separate repository-owner environment variable.
 
 ## Secret Management
 
@@ -404,10 +497,22 @@ npx playwright test tests/api/repositories/delete_repository.spec.ts --project=c
 
 Only run the DELETE test when the configured repository is a disposable repository that may safely be deleted.
 
+### UI CREATE + API Validation
+
+```powershell
+npx playwright test tests/e2e/repositories/ui_create_repository.spec.ts --project=chromium
+```
+
 ### View HTML Report
 
 ```powershell
 npx playwright show-report
+```
+
+To use a different report port:
+
+```powershell
+npx playwright show-report --port=9334
 ```
 
 ## Git Workflow
@@ -442,7 +547,7 @@ Before committing, verify that secrets and generated artifacts are not staged.
 
 `README.MD` is the project-level implementation and usage documentation.
 
-Whenever the project architecture, API layer, authentication strategy, test structure, or major project-level behavior changes, both files must be updated so they remain synchronized with the actual implementation.
+Whenever the project architecture, API layer, authentication strategy, UI page-object layer, fixture architecture, test structure, or major project-level behavior changes, both files must be updated so they remain synchronized with the actual implementation.
 
 ## Current Architecture Principles
 
@@ -454,12 +559,21 @@ Whenever the project architecture, API layer, authentication strategy, test stru
 - Prefer reusable API client methods over direct HTTP calls from tests.
 - Use disposable resources for destructive API automation.
 - Keep tests responsible for validation while API classes handle API operations.
+- Use the API as a synchronization point when a UI operation produces an asynchronously available backend resource.
+- Prefer condition-based polling over fixed sleeps for backend synchronization.
+- Keep UI/API comparison logic in the hybrid test rather than mixing it into page objects or API resource classes.
 
 ## Roadmap
 
 The current foundation is in place for expanding repository API coverage and adding additional GitHub UI and API scenarios without coupling tests directly to authentication or transport implementation.
 
-Potential future work should be added only when required and should be reflected in both `README.MD` and `design.md`.
+Potential future work should be added only when required, for example:
+
+- JSON Schema validation with AJV for API response contracts
+- Additional repository UI/API scenarios
+- Additional GitHub API resources
+
+Any future project-level change should be reflected in both `README.MD` and `design.md`.
 
 ## Documentation References
 
