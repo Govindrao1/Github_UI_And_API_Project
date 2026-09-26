@@ -1,0 +1,75 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "GitHub Repository",
+    "type": "object",
+    "required": [
+        "id",
+        "name",
+        "full_name",
+        "owner",
+        "private",
+        "html_url",
+        "description",
+        "fork",
+        "url",
+        "visibility",
+        "default_branch"
+    ],
+    "properties": {
+        "id": {
+            "type": "integer"
+        },
+        "name": {
+            "type": "string"
+        },
+        "full_name": {
+            "type": "string"
+        },
+        "owner": {
+            "type": "object",
+            "required": [
+                "login",
+                "id"
+            ],
+            "properties": {
+                "login": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                }
+            },
+            "additionalProperties": true
+        },
+        "private": {
+            "type": "boolean"
+        },
+        "html_url": {
+            "type": "string"
+        },
+        "description": {
+            "type": [
+                "string",
+                "null"
+            ]
+        },
+        "fork": {
+            "type": "boolean"
+        },
+        "url": {
+            "type": "string"
+        },
+        "visibility": {
+            "type": "string",
+            "enum": [
+                "public",
+                "private",
+                "internal"
+            ]
+        },
+        "default_branch": {
+            "type": "string"
+        }
+    },
+    "additionalProperties": true
+}
